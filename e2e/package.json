@@ -1,0 +1,20 @@
+{
+  "name": "ecoaudit-e2e",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "description": "Pruebas de extremo a extremo de EcoAudit (Playwright contra el frontend y el backend reales)",
+  "scripts": {
+    "test": "playwright test",
+    "test:ui": "playwright test --ui",
+    "typecheck": "tsc -p .",
+    "report": "playwright show-report"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.65.1",
+    "@types/node": "^24.19.2",
+    "@types/pngjs": "^6.0.5",
+    "pngjs": "^7.0.0",
+    "typescript": "^7.0.2"
+  }
+}

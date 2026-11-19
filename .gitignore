@@ -34,3 +34,8 @@ bundles/
 .idea/
 Thumbs.db
 .DS_Store
+
+# Pruebas e2e: datos temporales (incluye las contraseñas generadas) e informes
+e2e/.tmp/
+e2e/test-results/
+e2e/playwright-report/

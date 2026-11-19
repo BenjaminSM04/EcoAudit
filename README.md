@@ -91,6 +91,21 @@ cd backend  && pytest -q && ruff check .
 cd frontend && npm run lint && npm run build
 ```
 
+Pruebas de extremo a extremo (Playwright, Chromium) contra el frontend y el backend reales, con
+un modelo de demostración. Necesitan el backend instalado (`pip install -e "backend[dev]"`) y las
+dependencias del frontend (`npm ci`):
+
+```bash
+cd e2e
+npm ci
+npx playwright install chromium   # solo la primera vez
+npm test
+```
+
+Las pruebas arrancan por su cuenta el backend (puerto 8001) y Vite (puerto 5174) con una base y un
+almacenamiento nuevos en `e2e/.tmp/` (se borra en cada ejecución), crean los usuarios de prueba con
+contraseñas aleatorias y registran el modelo de demostración. No tocan `backend/data/`.
+
 ## Despliegue con Docker
 
 ```bash

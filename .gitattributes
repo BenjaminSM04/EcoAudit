@@ -1,0 +1,8 @@
+# Fin de línea LF en el repositorio; binarios sin conversión
+* text=auto eol=lf
+*.pdf binary
+*.docx binary
+*.png binary
+*.jpg binary
+*.onnx binary
+*.npz binary

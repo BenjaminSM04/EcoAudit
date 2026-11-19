@@ -4,8 +4,10 @@ import type { User } from './api'
 interface AuthState {
   user: User | null
   loading: boolean
+  // Aviso que la pantalla de ingreso muestra tras un cierre de sesión (p. ej. cambio de contraseña).
+  notice: string | null
   login: (email: string, password: string) => Promise<void>
-  logout: () => void
+  logout: (notice?: string) => void
 }
 
 export const AuthContext = createContext<AuthState | null>(null)

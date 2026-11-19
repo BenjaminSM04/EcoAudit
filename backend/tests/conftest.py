@@ -81,6 +81,12 @@ def medico(client, db) -> dict[str, str]:
 
 
 @pytest.fixture
+def investigador(client, db) -> dict[str, str]:
+    make_user(db, "investigador@test.bo", Role.investigador)
+    return login(client, "investigador@test.bo")
+
+
+@pytest.fixture
 def admin(client, db) -> dict[str, str]:
     make_user(db, "admin@test.bo", Role.admin)
     return login(client, "admin@test.bo")

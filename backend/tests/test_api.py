@@ -63,10 +63,27 @@ def test_admin_cannot_lock_themselves_out(client, admin):
     assert response.status_code == 400
 
 
-def test_investigador_has_no_access_to_clinical_cases(client, db):
+def test_investigador_uses_cases_but_only_his_own(client, db, medico, admin):
     make_user(db, "inv@test.bo", Role.investigador)
-    headers = login(client, "inv@test.bo")
-    assert client.get("/api/cases", headers=headers).status_code == 403
+    inv = login(client, "inv@test.bo")
+    make_user(db, "inv2@test.bo", Role.investigador)
+    other = login(client, "inv2@test.bo")
+
+    case_id = _new_case(client, inv)
+    image_id = _upload(client, inv, case_id).json()["id"]
+    assert [c["id"] for c in client.get("/api/cases", headers=inv).json()] == [case_id]
+    assert client.get(f"/api/cases/{case_id}", headers=inv).status_code == 200
+
+    # Los casos de otros (médico, otro investigador) no se ven; los propios, sí; admin ve todo.
+    medico_case = _new_case(client, medico)
+    for headers in (medico, other):
+        assert client.get(f"/api/cases/{case_id}", headers=headers).status_code == 404
+    assert client.get(f"/api/cases/{medico_case}", headers=inv).status_code == 404
+    assert client.get(f"/api/images/{image_id}/file", headers=other).status_code == 404
+    assert client.get("/api/analyses/1", headers=other).status_code == 404
+    assert _upload(client, other, case_id).status_code == 404
+    assert client.post(f"/api/images/{image_id}/analyses", headers=other, json={}).status_code == 404
+    assert client.get(f"/api/cases/{case_id}", headers=admin).status_code == 200
 
 
 # ------------------------------------------------------------------ aislamiento entre médicos

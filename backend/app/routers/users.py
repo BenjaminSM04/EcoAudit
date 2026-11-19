@@ -1,13 +1,13 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ..db import get_db
 from ..deps import record, require_roles
-from ..models import Role, User
-from ..schemas import UserCreate, UserOut, UserUpdate
+from ..models import Role, User, utcnow
+from ..schemas import PasswordReset, UserCreate, UserOut, UserUpdate
 from ..security import hash_password
 
 router = APIRouter(prefix="/api/users", tags=["users"])
@@ -56,3 +56,20 @@ def update_user(
     record(db, admin, "user_updated", "user", user.id, **{k: str(v) for k, v in changes.items()})
     db.commit()
     return user
+
+
+@router.post("/{user_id}/password", status_code=status.HTTP_204_NO_CONTENT)
+def reset_password(
+    user_id: int,
+    body: PasswordReset,
+    db: Session = Depends(get_db),
+    admin: User = Depends(_admin),
+) -> Response:
+    user = db.get(User, user_id)
+    if user is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Usuario no encontrado.")
+    user.password_hash = hash_password(body.new_password)
+    user.password_changed_at = utcnow()  # invalida los tokens de ese usuario
+    record(db, admin, "password_reset", "user", user.id)
+    db.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)

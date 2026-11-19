@@ -1,9 +1,11 @@
-import { NavLink, Navigate, Route, Routes } from 'react-router-dom'
+import { Link, NavLink, Navigate, Route, Routes } from 'react-router-dom'
 import { useAuth } from './session'
 import { ROLE } from './labels'
-import CaseDetailPage from './pages/CaseDetailPage'
+import AccountPage from './pages/AccountPage'
 import AuditPage from './pages/AuditPage'
+import CaseDetailPage from './pages/CaseDetailPage'
 import CasesPage from './pages/CasesPage'
+import CohortDetailPage from './pages/CohortDetailPage'
 import LoginPage from './pages/LoginPage'
 import ModelsPage from './pages/ModelsPage'
 import UsersPage from './pages/UsersPage'
@@ -14,24 +16,29 @@ export default function App() {
   if (loading) return <p className="center-note">Cargando…</p>
   if (user === null) return <LoginPage />
 
-  const clinical = user.role === 'medico' || user.role === 'admin'
-  const home = clinical ? '/casos' : '/auditoria'
+  // Casos: todos los roles (el backend limita a los propios, salvo admin).
+  // Auditoría de cohortes: investigador y admin. Usuarios: solo admin.
+  const canAudit = user.role === 'investigador' || user.role === 'admin'
+  const home = user.role === 'investigador' ? '/auditoria' : '/casos'
 
   return (
     <div className="shell">
       <header className="topbar">
         <span className="brand">EcoAudit</span>
         <nav>
-          {clinical && <NavLink to="/casos">Casos</NavLink>}
-          {user.role !== 'medico' && <NavLink to="/auditoria">Auditoría</NavLink>}
+          <NavLink to="/casos">Casos</NavLink>
+          {canAudit && <NavLink to="/auditoria">Auditoría</NavLink>}
           <NavLink to="/modelos">Modelos</NavLink>
           {user.role === 'admin' && <NavLink to="/usuarios">Usuarios</NavLink>}
         </nav>
         <div className="session">
           <span>
-            {user.full_name} · {ROLE[user.role]}
+            <Link to="/cuenta" title="Mi cuenta">
+              {user.full_name}
+            </Link>{' '}
+            · {ROLE[user.role]}
           </span>
-          <button className="link" onClick={logout}>
+          <button className="link" onClick={() => logout()}>
             Salir
           </button>
         </div>
@@ -39,10 +46,12 @@ export default function App() {
 
       <main>
         <Routes>
-          {clinical && <Route path="/casos" element={<CasesPage />} />}
-          {clinical && <Route path="/casos/:caseId" element={<CaseDetailPage />} />}
-          {user.role !== 'medico' && <Route path="/auditoria" element={<AuditPage />} />}
+          <Route path="/casos" element={<CasesPage />} />
+          <Route path="/casos/:caseId" element={<CaseDetailPage />} />
+          {canAudit && <Route path="/auditoria" element={<AuditPage />} />}
+          {canAudit && <Route path="/auditoria/:cohortId" element={<CohortDetailPage />} />}
           <Route path="/modelos" element={<ModelsPage />} />
+          <Route path="/cuenta" element={<AccountPage />} />
           {user.role === 'admin' && <Route path="/usuarios" element={<UsersPage />} />}
           <Route path="*" element={<Navigate to={home} replace />} />
         </Routes>

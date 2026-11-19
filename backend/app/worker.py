@@ -10,10 +10,12 @@ from __future__ import annotations
 
 import logging
 import time
+from datetime import timedelta
 
 from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
+from .cohorts import refresh_cohorts_of
 from .config import get_settings
 from .db import init_db, new_session
 from .models import Analysis, AnalysisStatus, utcnow
@@ -23,6 +25,10 @@ from .pipeline.runner import analyze
 from .storage import get_storage
 
 log = logging.getLogger("ecoaudit.worker")
+
+# Veces que se reclama un análisis antes de darlo por fallido si el worker muere en cada intento.
+MAX_ATTEMPTS = 3
+INTERRUPTED_ERROR = "Interrumpido repetidamente."
 
 _bundles: dict[int, ModelBundle] = {}
 
@@ -38,10 +44,56 @@ def claim(db: Session, analysis_id: int) -> bool:
     result = db.execute(
         update(Analysis)
         .where(Analysis.id == analysis_id, Analysis.status == AnalysisStatus.pending)
-        .values(status=AnalysisStatus.running, started_at=utcnow())
+        .values(
+            status=AnalysisStatus.running, started_at=utcnow(), attempts=Analysis.attempts + 1
+        )
     )
     db.commit()
     return result.rowcount == 1
+
+
+def requeue_stale(db: Session) -> int:
+    """Recupera los análisis que quedaron ``running`` porque el worker murió.
+
+    Los que llevan más de ``analysis_timeout_seconds`` en ese estado vuelven a ``pending`` si les
+    quedan intentos; si no, pasan a ``failed``. Cada cambio es un UPDATE condicionado al estado
+    ``running``, así que no pisa a un worker que justo terminó. Devuelve cuántos cambió.
+    """
+    cutoff = utcnow() - timedelta(seconds=get_settings().analysis_timeout_seconds)
+    stale = (Analysis.status == AnalysisStatus.running, Analysis.started_at < cutoff)
+    # Los que agotaron los intentos fallan; se guardan sus ids para cerrar sus cohortes.
+    exhausted = list(
+        db.scalars(select(Analysis.id).where(*stale, Analysis.attempts >= MAX_ATTEMPTS))
+    )
+    failed = 0
+    if exhausted:
+        failed = db.execute(
+            update(Analysis)
+            .where(Analysis.id.in_(exhausted), *stale)
+            .values(
+                status=AnalysisStatus.failed, error=INTERRUPTED_ERROR, finished_at=utcnow()
+            )
+        ).rowcount
+    requeued = db.execute(
+        update(Analysis)
+        .where(*stale, Analysis.attempts < MAX_ATTEMPTS)
+        .values(status=AnalysisStatus.pending, started_at=None)
+    ).rowcount
+    db.commit()
+    if requeued or failed:
+        log.warning("Análisis interrumpidos: %d reencolados, %d fallidos", requeued, failed)
+    for analysis_id in exhausted:
+        _refresh_cohorts(db, analysis_id)
+    return requeued + failed
+
+
+def _refresh_cohorts(db: Session, analysis_id: int) -> None:
+    """Cierra las cohortes del análisis; un error aquí no debe tumbar al worker."""
+    try:
+        refresh_cohorts_of(db, analysis_id)
+    except Exception:
+        log.exception("No se pudo refrescar la cohorte del análisis %s", analysis_id)
+        db.rollback()
 
 
 def process_analysis(db: Session, analysis_id: int) -> bool:
@@ -75,6 +127,7 @@ def process_analysis(db: Session, analysis_id: int) -> bool:
         analysis.error = f"{type(exc).__name__}: {exc}"[:2000]
     analysis.finished_at = utcnow()
     db.commit()
+    _refresh_cohorts(db, analysis_id)
     return True
 
 
@@ -110,6 +163,7 @@ def main() -> None:
     while True:
         db = new_session()
         try:
+            requeue_stale(db)
             worked = process_next(db)
         finally:
             db.close()

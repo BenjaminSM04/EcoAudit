@@ -1,6 +1,6 @@
 // Textos que ve el usuario para los códigos que devuelve el backend.
 
-import type { Decision, Role } from './api'
+import type { CohortProgress, CohortSource, CohortStatus, Decision, Role } from './api'
 
 export const DECISION: Record<Decision, { title: string; detail: string; tone: string }> = {
   probably_benign: {
@@ -26,6 +26,30 @@ export const DECISION: Record<Decision, { title: string; detail: string; tone: s
   },
 }
 
+// Orden en que se listan los conteos por decisión (de menor a mayor sospecha).
+export const DECISION_ORDER: Decision[] = [
+  'probably_benign',
+  'indeterminate',
+  'suspicious',
+  'out_of_domain',
+]
+
+// El backend devuelve las decisiones como texto libre: un código desconocido se muestra tal cual.
+export function decisionTitle(code: string): string {
+  return Object.hasOwn(DECISION, code) ? DECISION[code as Decision].title : code
+}
+
+export const COHORT_STATUS: Record<CohortStatus, string> = {
+  processing: 'Procesando',
+  done: 'Terminada',
+  failed: 'Fallida',
+}
+
+export const COHORT_SOURCE: Record<CohortSource, string> = {
+  analyses: 'Análisis existentes',
+  batch: 'Lote nuevo',
+}
+
 export const WARNING: Record<string, string> = {
   demo_model: 'Modelo de demostración sin entrenamiento: este resultado no significa nada.',
   out_of_domain: 'Imagen fuera del dominio de entrenamiento.',
@@ -38,6 +62,8 @@ export const WARNING: Record<string, string> = {
   color_content: 'La imagen tiene color (Doppler o anotaciones): fuera del uso previsto.',
   exact_duplicate: 'Imagen idéntica a otra del mismo caso.',
   near_duplicate: 'Imagen casi idéntica a otra del mismo caso.',
+  exact_duplicate_other_case: 'Imagen idéntica a otra de otro caso suyo.',
+  near_duplicate_other_case: 'Imagen casi idéntica a otra de otro caso suyo.',
 }
 
 export const ROLE: Record<Role, string> = {
@@ -52,6 +78,20 @@ export function warningText(code: string): string {
 
 export function percent(value: number | null, digits = 0): string {
   return value === null ? '—' : `${(value * 100).toFixed(digits)} %`
+}
+
+// Número con tres decimales (AUROC, Brier, ECE…); '—' si no es finito.
+export function decimal(value: number): string {
+  return Number.isFinite(value)
+    ? value.toLocaleString('es-BO', { minimumFractionDigits: 3, maximumFractionDigits: 3 })
+    : '—'
+}
+
+// «done/total» y, si los hay, los fallidos. `done` cuenta análisis terminados con éxito.
+export function progressText(progress: CohortProgress): string {
+  const base = `${progress.done}/${progress.total}`
+  if (progress.failed === 0) return base
+  return `${base} · ${progress.failed} ${progress.failed === 1 ? 'fallido' : 'fallidos'}`
 }
 
 export function dateTime(iso: string): string {

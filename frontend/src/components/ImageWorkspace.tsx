@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import type { PointerEvent as ReactPointerEvent } from 'react'
-import { api, downloadPdf } from '../api'
+import { api, downloadFile } from '../api'
 import type { Analysis, CaseImage, ModelVersion, Roi } from '../api'
 import { warningText } from '../labels'
 import ResultPanel from './ResultPanel'
@@ -166,7 +166,7 @@ export default function ImageWorkspace({ image, models }: Props) {
         </div>
         {roi && <p className="muted small">Revise el recuadro antes de analizar. Puede volver a trazarlo.</p>}
         {analysis?.status === 'done' && <button className="secondary" onClick={() =>
-          downloadPdf(`/api/analyses/${analysis.id}/report`, 'analisis-'+analysis.id).catch(err => setError(err.message))
+          downloadFile(`/api/analyses/${analysis.id}/report`, `analisis-${analysis.id}.pdf`).catch(err => setError(err.message))
         }>Descargar PDF · Análisis #{analysis.id}</button>}
         {error && <p className="error">{error}</p>}
 

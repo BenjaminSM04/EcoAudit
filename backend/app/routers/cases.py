@@ -1,4 +1,5 @@
-"""Casos, imágenes y análisis. Un médico solo ve sus propios casos; el administrador, todos."""
+"""Casos, imágenes y análisis. Médicos e investigadores solo ven sus propios casos; el
+administrador, todos."""
 
 from __future__ import annotations
 
@@ -13,18 +14,18 @@ from ..config import get_settings
 from ..db import get_db
 from ..deps import record, require_roles
 from ..models import Analysis, AnalysisStatus, Case, Image, Role, User
-from ..pipeline.imaging import ImageDecodeError, decode_upload
+from ..pipeline.imaging import ImageDecodeError
 from ..pipeline.localizer import propose
-from ..pipeline.quality import NEAR_DUPLICATE_BITS, dhash, hamming, quality_flags
 from ..pipeline.runner import RoiError, resolve_roi
 from ..registry import get_active
-from ..reports import pdf
+from ..reports import DECISION_LABELS, pdf
 from ..schemas import AnalysisCreate, AnalysisOut, CaseCreate, CaseOut, CaseSummary, ImageOut
+from ..services import DuplicateFinder, prepare_image, store_image
 from ..storage import get_storage
 from ..worker import run_inline
 
 router = APIRouter(prefix="/api", tags=["cases"])
-_clinical = require_roles(Role.medico, Role.admin)
+_clinical = require_roles(Role.medico, Role.investigador, Role.admin)
 _PNG_HEADERS = {"Cache-Control": "private, max-age=3600"}
 
 
@@ -148,39 +149,11 @@ async def upload_image(
             f"El archivo supera {get_settings().max_upload_mb} MB.",
         )
     try:
-        decoded = decode_upload(data, file.filename or "")
+        prepared = prepare_image(data, file.filename or "")
     except ImageDecodeError as exc:
         raise HTTPException(422, str(exc)) from exc
-
-    fingerprint = dhash(decoded.pixels)
-    flags = quality_flags(decoded.pixels)
-    duplicate_of: int | None = None
-    for other in case.images:
-        if other.pixel_sha256 == decoded.pixel_sha256:
-            duplicate_of = other.id
-            flags.append("exact_duplicate")
-            break
-        if duplicate_of is None and hamming(other.dhash, fingerprint) <= NEAR_DUPLICATE_BITS:
-            duplicate_of = other.id
-    if duplicate_of is not None and "exact_duplicate" not in flags:
-        flags.append("near_duplicate")
-
-    image = Image(
-        case_id=case.id,
-        storage_key="",
-        pixel_sha256=decoded.pixel_sha256,
-        dhash=fingerprint,
-        width=decoded.width,
-        height=decoded.height,
-        source_format=decoded.source_format,
-        qc_flags=flags,
-        duplicate_of_id=duplicate_of,
-    )
-    db.add(image)
-    db.flush()
-    image.storage_key = f"images/{case.id}/{image.id}.png"
-    get_storage().put_bytes(image.storage_key, decoded.png_bytes)
-    record(db, user, "image_uploaded", "image", image.id, source_format=decoded.source_format)
+    image = store_image(db, case, prepared, DuplicateFinder(db, user.id))
+    record(db, user, "image_uploaded", "image", image.id, source_format=image.source_format)
     db.commit()
     return _image_out(image)
 
@@ -272,12 +245,6 @@ def analysis_report(
     if a.status != AnalysisStatus.done:
         raise HTTPException(409, "El análisis aún no tiene un resultado.")
     model = a.model_version
-    decisions = {
-        "out_of_domain": "Fuera de dominio. Probabilidad no confiable.",
-        "indeterminate": "Indeterminada",
-        "suspicious": "Sospechosa de malignidad",
-        "probably_benign": "Probablemente benigna",
-    }
     warnings = {
         "roi_not_expected": "El clasificador se entrenó con la imagen completa y recibió un recorte.",
         "roi_expected": "El modelo requiere un recorte de la lesión.",
@@ -290,6 +257,8 @@ def analysis_report(
         "color_content": "Se detectó contenido de color.",
         "exact_duplicate": "Duplicado exacto.",
         "near_duplicate": "Posible duplicado.",
+        "exact_duplicate_other_case": "Idéntica a una imagen de otro caso.",
+        "near_duplicate_other_case": "Casi idéntica a una imagen de otro caso.",
     }
     region = "Imagen completa"
     if a.roi:
@@ -304,7 +273,7 @@ def analysis_report(
             ("Modelo", f"{model.name} {model.version}"),
             ("SHA-256", model.bundle_sha256),
             ("Región analizada", region),
-            ("Resultado", decisions.get(a.decision, a.decision)),
+            ("Resultado", DECISION_LABELS.get(a.decision, a.decision)),
             ("Probabilidad calibrada de malignidad", f"{a.probability:.1%}"),
             (
                 "Advertencias del análisis",

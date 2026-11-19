@@ -9,13 +9,17 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from . import __version__
 from .config import get_settings
-from .db import init_db
+from .db import init_db, new_session
 from .routers import auth, cases, cohorts, model_registry, users
+from .worker import requeue_stale
 
 
 @asynccontextmanager
 async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     init_db()
+    # Un análisis que quedó ``running`` porque el proceso anterior murió vuelve a la cola.
+    with new_session() as db:
+        requeue_stale(db)
     yield
 
 

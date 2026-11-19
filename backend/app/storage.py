@@ -36,6 +36,10 @@ class Storage:
             shutil.rmtree(target)
         shutil.copytree(source, target)
 
+    def delete(self, key: str) -> None:
+        """Borra un objeto si existe (para deshacer una carga que no llegó a confirmarse)."""
+        self.path(key).unlink(missing_ok=True)
+
     def exists(self, key: str) -> bool:
         return self.path(key).exists()
 

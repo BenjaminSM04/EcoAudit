@@ -1,18 +1,26 @@
 import { useEffect, useState } from 'react'
 import type { FormEvent } from 'react'
+import { Link } from 'react-router-dom'
 import { api } from '../api'
 import type { Role, User } from '../api'
 import { useAuth } from '../session'
 import { ROLE } from '../labels'
 
 const EMPTY = { email: '', full_name: '', password: '', role: 'medico' as Role }
+const MIN_PASSWORD = 10
+const MAX_PASSWORD = 128
 
 export default function UsersPage() {
   const { user: me } = useAuth()
   const [users, setUsers] = useState<User[] | null>(null)
   const [form, setForm] = useState(EMPTY)
   const [error, setError] = useState<string | null>(null)
+  const [notice, setNotice] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  // Usuario cuyo restablecimiento de contraseña está desplegado (una fila a la vez).
+  const [resetting, setResetting] = useState<number | null>(null)
+  const [newPassword, setNewPassword] = useState('')
+  const [showPassword, setShowPassword] = useState(false)
 
   useEffect(() => {
     api
@@ -24,6 +32,7 @@ export default function UsersPage() {
   async function run(action: () => Promise<unknown>) {
     setBusy(true)
     setError(null)
+    setNotice(null)
     try {
       await action()
       setUsers(await api.listUsers())
@@ -39,6 +48,36 @@ export default function UsersPage() {
     void run(async () => {
       await api.createUser(form)
       setForm(EMPTY)
+    })
+  }
+
+  function openReset(id: number) {
+    setResetting(id)
+    setNewPassword('')
+    setShowPassword(false)
+    setError(null)
+    setNotice(null)
+  }
+
+  function closeReset() {
+    setResetting(null)
+    setNewPassword('')
+  }
+
+  function confirmReset(event: FormEvent, target: User) {
+    event.preventDefault()
+    if (newPassword.length < MIN_PASSWORD || newPassword.length > MAX_PASSWORD) {
+      setNotice(null)
+      setError(`La contraseña debe tener entre ${MIN_PASSWORD} y ${MAX_PASSWORD} caracteres.`)
+      return
+    }
+    void run(async () => {
+      await api.resetUserPassword(target.id, newPassword)
+      closeReset()
+      setNotice(
+        `Contraseña de ${target.full_name} restablecida. Sus sesiones abiertas se cerraron; ` +
+          'comuníquele la nueva contraseña por un canal seguro.',
+      )
     })
   }
 
@@ -93,7 +132,16 @@ export default function UsersPage() {
         </button>
       </form>
 
-      {error && <p className="error">{error}</p>}
+      {error && (
+        <p className="error" role="alert">
+          {error}
+        </p>
+      )}
+      {notice && (
+        <p className="banner" role="status">
+          {notice}
+        </p>
+      )}
       {users === null && !error && <p className="muted">Cargando…</p>}
       {users !== null && (
         <table className="card">
@@ -114,16 +162,60 @@ export default function UsersPage() {
                 <td>{ROLE[user.role]}</td>
                 <td>{user.is_active ? 'Activo' : 'Desactivado'}</td>
                 <td>
-                  {user.id !== me?.id && (
-                    <button
-                      className="secondary"
-                      disabled={busy}
-                      onClick={() =>
-                        void run(() => api.updateUser(user.id, { is_active: !user.is_active }))
-                      }
-                    >
-                      {user.is_active ? 'Desactivar' : 'Reactivar'}
-                    </button>
+                  {user.id === me?.id ? (
+                    // La propia contraseña se cambia con la actual, en Mi cuenta.
+                    <Link to="/cuenta">Cambiar mi contraseña</Link>
+                  ) : (
+                    <div className="actions">
+                      <button
+                        className="secondary"
+                        disabled={busy}
+                        onClick={() =>
+                          void run(() => api.updateUser(user.id, { is_active: !user.is_active }))
+                        }
+                      >
+                        {user.is_active ? 'Desactivar' : 'Reactivar'}
+                      </button>
+                      <button
+                        className="secondary"
+                        disabled={busy}
+                        aria-expanded={resetting === user.id}
+                        onClick={() => (resetting === user.id ? closeReset() : openReset(user.id))}
+                      >
+                        Restablecer contraseña
+                      </button>
+                    </div>
+                  )}
+                  {resetting === user.id && (
+                    <form className="inline-form reset" onSubmit={(e) => confirmReset(e, user)}>
+                      <label>
+                        Nueva contraseña para {user.full_name}
+                        <input
+                          type={showPassword ? 'text' : 'password'}
+                          autoComplete="new-password"
+                          minLength={MIN_PASSWORD}
+                          maxLength={MAX_PASSWORD}
+                          value={newPassword}
+                          onChange={(e) => setNewPassword(e.target.value)}
+                          required
+                          autoFocus
+                        />
+                      </label>
+                      <label className="check">
+                        <input
+                          type="checkbox"
+                          checked={showPassword}
+                          onChange={(e) => setShowPassword(e.target.checked)}
+                        />
+                        Mostrar
+                      </label>
+                      <button type="submit" disabled={busy}>
+                        Confirmar
+                      </button>
+                      <button type="button" className="secondary" onClick={closeReset}>
+                        Cancelar
+                      </button>
+                    </form>
                   )}
                 </td>
               </tr>

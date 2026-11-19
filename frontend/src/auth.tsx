@@ -8,6 +8,7 @@ import { AuthContext } from './session'
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
   const [loading, setLoading] = useState(getToken() !== null)
+  const [notice, setNotice] = useState<string | null>(null)
 
   useEffect(() => {
     if (getToken() === null) return
@@ -27,14 +28,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const login = useCallback(async (email: string, password: string) => {
     await api.login(email, password)
     setUser(await api.me())
+    setNotice(null)
   }, [])
 
-  const logout = useCallback(() => {
+  const logout = useCallback((message?: string) => {
     setToken(null)
     setUser(null)
+    setNotice(message ?? null)
   }, [])
 
   return (
-    <AuthContext.Provider value={{ user, loading, login, logout }}>{children}</AuthContext.Provider>
+    <AuthContext.Provider value={{ user, loading, notice, login, logout }}>
+      {children}
+    </AuthContext.Provider>
   )
 }

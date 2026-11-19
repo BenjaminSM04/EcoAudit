@@ -19,6 +19,7 @@ export default function ResultPanel({ analysis, model }: Props) {
       <div className="result tone-warning">
         <h3>El análisis falló</h3>
         <p className="small">{analysis.error}</p>
+        {analysis.attempts > 1 && <p className="small">Intentos: {analysis.attempts}.</p>}
       </div>
     )
   }
@@ -74,6 +75,12 @@ export default function ResultPanel({ analysis, model }: Props) {
         <dd>{model ? `${model.name} ${model.version}` : `#${analysis.model_version_id}`}</dd>
         <dt>Fecha</dt>
         <dd>{analysis.finished_at ? dateTime(analysis.finished_at) : '—'}</dd>
+        {analysis.attempts > 1 && (
+          <>
+            <dt>Intentos</dt>
+            <dd>{analysis.attempts} (el análisis se interrumpió y se repitió)</dd>
+          </>
+        )}
       </dl>
 
       {analysis.warnings.length > 0 && (

@@ -50,6 +50,17 @@ class AnalysisStatus(enum.StrEnum):
     failed = "failed"
 
 
+class CohortStatus(enum.StrEnum):
+    processing = "processing"
+    done = "done"
+    failed = "failed"
+
+
+class CohortSource(enum.StrEnum):
+    analyses = "analyses"  # desde análisis existentes (CSV)
+    batch = "batch"  # lote nuevo de imágenes
+
+
 class User(Base):
     __tablename__ = "users"
 
@@ -60,6 +71,8 @@ class User(Base):
     role: Mapped[Role] = mapped_column(Enum(Role, native_enum=False, length=20))
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(UtcDateTime, default=utcnow)
+    # Los tokens emitidos antes de este instante dejan de valer (ver ``deps.get_current_user``).
+    password_changed_at: Mapped[datetime | None] = mapped_column(UtcDateTime, nullable=True)
 
 
 class Case(Base):
@@ -123,6 +136,8 @@ class Analysis(Base):
         index=True,
     )
     roi: Mapped[dict | None] = mapped_column(JSON, nullable=True)  # {x, y, w, h} en píxeles
+    # Veces que un worker lo reclamó; si el worker muere se reencola hasta agotar los intentos.
+    attempts: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
 
     probability_raw: Mapped[float | None] = mapped_column(Float, nullable=True)
     probability: Mapped[float | None] = mapped_column(Float, nullable=True)  # calibrada
@@ -140,6 +155,52 @@ class Analysis(Base):
 
     image: Mapped[Image] = relationship(back_populates="analyses")
     model_version: Mapped[ModelVersion] = relationship()
+
+
+class Cohort(Base):
+    """Cohorte de auditoría: un conjunto de análisis con etiqueta y las métricas que resultan.
+
+    Con ``source = batch`` nace en ``processing`` y se cierra cuando termina el último análisis
+    (``cohorts.refresh_cohort``). Con ``source = analyses`` nace ya terminada.
+    """
+
+    __tablename__ = "cohorts"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String(120))
+    source: Mapped[CohortSource] = mapped_column(Enum(CohortSource, native_enum=False, length=16))
+    status: Mapped[CohortStatus] = mapped_column(
+        Enum(CohortStatus, native_enum=False, length=16), default=CohortStatus.processing,
+        index=True,
+    )
+    owner_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    model_version_id: Mapped[int] = mapped_column(ForeignKey("model_versions.id"))
+    csv_hash: Mapped[str] = mapped_column(String(64))  # SHA-256 del CSV (o del manifiesto)
+    results: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(UtcDateTime, default=utcnow)
+    finished_at: Mapped[datetime | None] = mapped_column(UtcDateTime, nullable=True)
+
+    owner: Mapped[User] = relationship()
+    model_version: Mapped[ModelVersion] = relationship()
+    items: Mapped[list[CohortItem]] = relationship(
+        back_populates="cohort", cascade="all, delete-orphan", order_by="CohortItem.id"
+    )
+
+
+class CohortItem(Base):
+    """Un análisis de la cohorte con su etiqueta y el seudónimo del paciente."""
+
+    __tablename__ = "cohort_items"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    cohort_id: Mapped[int] = mapped_column(ForeignKey("cohorts.id"), index=True)
+    analysis_id: Mapped[int] = mapped_column(ForeignKey("analyses.id"), index=True)
+    patient_ref: Mapped[str] = mapped_column(String(64))
+    label: Mapped[int] = mapped_column(Integer)  # 0 benigno, 1 maligno
+
+    cohort: Mapped[Cohort] = relationship(back_populates="items")
+    analysis: Mapped[Analysis] = relationship()
 
 
 class AuditLog(Base):

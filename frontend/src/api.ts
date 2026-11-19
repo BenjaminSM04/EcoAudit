@@ -37,6 +37,8 @@ export interface Analysis {
   warnings: string[]
   has_cam: boolean
   error: string | null
+  // Veces que se intentó correr el análisis; más de 1 si el worker se interrumpió.
+  attempts: number
   created_at: string
   finished_at: string | null
 }
@@ -94,6 +96,53 @@ export interface ModelVersion {
   created_at: string
 }
 
+export type CohortStatus = 'processing' | 'done' | 'failed'
+export type CohortSource = 'analyses' | 'batch'
+
+export interface CohortProgress {
+  total: number
+  done: number
+  failed: number
+}
+
+export interface CohortSummary {
+  id: number
+  name: string
+  source: CohortSource
+  status: CohortStatus
+  model: string // "nombre versión"
+  created_at: string
+  progress: CohortProgress
+}
+
+export interface CalibrationBin {
+  bin: number
+  n: number
+  predicted: number
+  observed: number
+}
+
+export interface CohortMetrics {
+  patients: number
+  positive: number
+  images: number
+  auc: number
+  ci: [number, number] | null
+  brier: number
+  ece: number
+  bins: CalibrationBin[]
+  abstentions: number
+  decisions: Record<string, number> // conteo por decisión
+  demo: boolean
+  model_hash: string
+  csv_hash: string
+}
+
+export interface CohortDetail extends CohortSummary {
+  results: CohortMetrics | null // null mientras processing o si failed
+  error: string | null
+}
+
 export class ApiError extends Error {
   status: number
   constructor(status: number, message: string) {
@@ -124,7 +173,11 @@ async function errorMessage(response: Response): Promise<string> {
     const body = await response.json()
     if (typeof body.detail === 'string') return body.detail
     if (Array.isArray(body.detail)) {
-      return body.detail.map((d: { msg?: string }) => d.msg ?? '').join('. ')
+      // Errores de validación: objetos con `msg` (FastAPI) o textos sueltos.
+      const parts = body.detail
+        .map((d: unknown) => (typeof d === 'string' ? d : ((d as { msg?: string }).msg ?? '')))
+        .filter((text: string) => text !== '')
+      if (parts.length > 0) return parts.join('. ')
     }
   } catch {
     // respuesta sin JSON
@@ -156,6 +209,11 @@ async function json<T>(path: string, init?: RequestInit): Promise<T> {
   return (await send(path, init)).json() as Promise<T>
 }
 
+// Para respuestas 204: no hay cuerpo que leer.
+async function noContent(path: string, init?: RequestInit): Promise<void> {
+  await send(path, init)
+}
+
 function body(method: string, data: unknown): RequestInit {
   return {
     method,
@@ -164,27 +222,25 @@ function body(method: string, data: unknown): RequestInit {
   }
 }
 
-export interface Cohort {
-  id: number; model: string; demo: boolean; patients: number; images: number; positive: number
-  auc: number; brier: number; ece: number; ci: number[] | null; abstentions: number
-  bins: { bin: number; n: number; predicted: number; observed: number }[]
-}
-
-export async function downloadPdf(path: string, name: string) {
+// Descarga un archivo autenticado (PDF, CSV…): el token no viaja en un <a href> directo.
+export async function downloadFile(path: string, fileName: string): Promise<void> {
   const url = URL.createObjectURL(await api.blob(path))
   const link = document.createElement('a')
   link.href = url
-  link.download = name + '.pdf'
+  link.download = fileName
+  document.body.append(link)
   link.click()
+  link.remove()
   setTimeout(() => URL.revokeObjectURL(url), 30000)
 }
 
+export const downloadCohortReport = (id: number) =>
+  downloadFile(`/api/cohorts/${id}/report`, `auditoria-${id}.pdf`)
+
+export const downloadCohortItems = (id: number) =>
+  downloadFile(`/api/cohorts/${id}/items.csv`, `auditoria-${id}-items.csv`)
+
 export const api = {
-  audit: (file: File) => {
-    const form = new FormData()
-    form.append('file', file)
-    return json<Cohort>('/api/cohorts', { method: 'POST', body: form })
-  },
   suggest: (id: number) => json<{roi: Roi | null}>(`/api/images/${id}/roi`, { method: 'POST' }),
   async login(email: string, password: string): Promise<void> {
     const form = new URLSearchParams({ username: email, password })
@@ -195,6 +251,9 @@ export const api = {
     setToken(result.access_token)
   },
   me: () => json<User>('/api/auth/me'),
+  // 204. Los tokens anteriores dejan de valer: quien llama debe cerrar la sesión.
+  changePassword: (current_password: string, new_password: string) =>
+    noContent('/api/auth/password', body('POST', { current_password, new_password })),
 
   listCases: () => json<CaseSummary[]>('/api/cases'),
   createCase: (patient_ref: string, notes: string) =>
@@ -219,4 +278,25 @@ export const api = {
     json<User>('/api/users', body('POST', data)),
   updateUser: (id: number, data: { role?: Role; is_active?: boolean }) =>
     json<User>(`/api/users/${id}`, body('PATCH', data)),
+  // Solo admin. 204; invalida los tokens de ese usuario.
+  resetUserPassword: (id: number, new_password: string) =>
+    noContent(`/api/users/${id}/password`, body('POST', { new_password })),
+
+  listCohorts: () => json<CohortSummary[]>('/api/cohorts'),
+  getCohort: (id: number) => json<CohortDetail>(`/api/cohorts/${id}`),
+  // CSV `analysis_id,label`; el nombre es opcional. Responde 201 con la cohorte ya terminada.
+  createCohortFromAnalyses: (file: File, name: string) => {
+    const form = new FormData()
+    form.append('file', file)
+    if (name.trim() !== '') form.append('name', name.trim())
+    return json<CohortDetail>('/api/cohorts', { method: 'POST', body: form })
+  },
+  // Lote nuevo: manifiesto `filename,patient_ref,label` + imágenes. Responde 201 en `processing`.
+  createCohortBatch: (name: string, manifest: File, images: File[]) => {
+    const form = new FormData()
+    form.append('name', name)
+    form.append('manifest', manifest)
+    for (const image of images) form.append('images', image)
+    return json<CohortDetail>('/api/cohorts/batch', { method: 'POST', body: form })
+  },
 }

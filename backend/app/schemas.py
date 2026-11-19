@@ -5,7 +5,7 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
-from .models import AnalysisStatus, Role
+from .models import AnalysisStatus, CohortSource, CohortStatus, Role
 
 
 class _Out(BaseModel):
@@ -37,6 +37,15 @@ class UserUpdate(BaseModel):
     is_active: bool | None = None
 
 
+class PasswordChange(BaseModel):
+    current_password: str = Field(max_length=1024)
+    new_password: str = Field(min_length=10, max_length=128)
+
+
+class PasswordReset(BaseModel):
+    new_password: str = Field(min_length=10, max_length=128)
+
+
 class Roi(BaseModel):
     x: float = Field(ge=0)
     y: float = Field(ge=0)
@@ -52,6 +61,7 @@ class AnalysisOut(_Out):
     id: int
     image_id: int
     status: AnalysisStatus
+    attempts: int
     roi: Roi | None
     model_version_id: int
     probability_raw: float | None
@@ -112,3 +122,47 @@ class ModelVersionOut(_Out):
     is_active: bool
     card: dict
     created_at: datetime
+
+
+class CohortProgress(BaseModel):
+    total: int
+    done: int
+    failed: int
+
+
+class CohortSummary(_Out):
+    id: int
+    name: str
+    source: CohortSource
+    status: CohortStatus
+    model: str  # "nombre versión"
+    created_at: datetime
+    progress: CohortProgress
+
+
+class CohortBin(BaseModel):
+    bin: int
+    n: int
+    predicted: float
+    observed: float
+
+
+class CohortMetrics(BaseModel):
+    patients: int
+    positive: int
+    images: int
+    auc: float
+    ci: tuple[float, float] | None
+    brier: float
+    ece: float
+    bins: list[CohortBin]
+    abstentions: int
+    decisions: dict[str, int]  # conteo por decisión
+    demo: bool
+    model_hash: str
+    csv_hash: str
+
+
+class CohortDetail(CohortSummary):
+    results: CohortMetrics | None
+    error: str | None

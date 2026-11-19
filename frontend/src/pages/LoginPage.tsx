@@ -3,7 +3,7 @@ import type { FormEvent } from 'react'
 import { useAuth } from '../session'
 
 export default function LoginPage() {
-  const { login } = useAuth()
+  const { login, notice } = useAuth()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
@@ -50,7 +50,16 @@ export default function LoginPage() {
             required
           />
         </label>
-        {error && <p className="error">{error}</p>}
+        {notice && (
+          <p className="banner" role="status">
+            {notice}
+          </p>
+        )}
+        {error && (
+          <p className="error" role="alert">
+            {error}
+          </p>
+        )}
         <button type="submit" disabled={busy}>
           {busy ? 'Ingresando…' : 'Ingresar'}
         </button>

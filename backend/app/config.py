@@ -24,6 +24,8 @@ class Settings(BaseSettings):
     # False: lo toma un proceso aparte (`python -m app.worker`).
     inline_worker: bool = True
     worker_poll_seconds: float = 1.0
+    # Un análisis ``running`` más antiguo que esto se considera interrumpido y se reencola.
+    analysis_timeout_seconds: int = 300
 
     @model_validator(mode="after")
     def _no_default_secret_outside_dev(self) -> Settings:

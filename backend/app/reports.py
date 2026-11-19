@@ -7,6 +7,13 @@ from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import getSampleStyleSheet
 from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer
 
+DECISION_LABELS = {
+    "out_of_domain": "Fuera de dominio. Probabilidad no confiable.",
+    "indeterminate": "Indeterminada",
+    "suspicious": "Sospechosa de malignidad",
+    "probably_benign": "Probablemente benigna",
+}
+
 
 def pdf(title, fields):
     stream = BytesIO()

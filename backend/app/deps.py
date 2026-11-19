@@ -10,15 +10,22 @@ from sqlalchemy.orm import Session
 
 from .db import get_db
 from .models import AuditLog, Role, User
-from .security import decode_access_token
+from .security import issued_before, read_access_token
 
 _oauth2 = OAuth2PasswordBearer(tokenUrl="/api/auth/login")
 
 
 def get_current_user(token: str = Depends(_oauth2), db: Session = Depends(get_db)) -> User:
-    user_id = decode_access_token(token)
-    user = db.get(User, user_id) if user_id is not None else None
-    if user is None or not user.is_active:
+    claims = read_access_token(token)
+    user = db.get(User, claims.user_id) if claims is not None else None
+    # Un cambio de contraseña invalida los tokens emitidos antes.
+    revoked = (
+        claims is not None
+        and user is not None
+        and user.password_changed_at is not None
+        and issued_before(claims, user.password_changed_at)
+    )
+    if user is None or not user.is_active or revoked:
         raise HTTPException(
             status.HTTP_401_UNAUTHORIZED,
             "Sesión inválida o expirada.",

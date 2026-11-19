@@ -1,0 +1,36 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+
+# Node
+node_modules/
+frontend/dist/
+
+# Datos y secretos: nunca se versionan imágenes, bases de datos ni modelos
+.env
+data/
+backend/data/
+*.db
+*.onnx
+*.pt
+*.npz
+bundles/
+
+# LaTeX
+*.aux
+*.log
+*.out
+*.toc
+*.fls
+*.fdb_latexmk
+*.synctex.gz
+
+# Editor / SO
+.vscode/
+.idea/
+Thumbs.db
+.DS_Store

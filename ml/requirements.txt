@@ -1,0 +1,10 @@
+# Para exportar basta la build de CPU:
+#   pip install torch==2.5.1 torchvision==0.20.1 --index-url https://download.pytorch.org/whl/cpu
+# Para entrenar, instale la build CUDA que corresponda a su GPU.
+torch==2.5.1
+torchvision==0.20.1
+onnx>=1.16
+onnxruntime>=1.18
+pillow>=10.3
+numpy>=1.26
+scikit-learn>=1.3

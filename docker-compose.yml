@@ -1,0 +1,60 @@
+# Despliegue completo: base de datos, API, worker de inferencia e interfaz web.
+#   cp .env.example .env   (y complete los valores)
+#   docker compose up --build
+# La interfaz queda en http://localhost:8080
+
+x-backend: &backend
+  build: ./backend
+  environment:
+    ECOAUDIT_ENVIRONMENT: prod
+    ECOAUDIT_DATABASE_URL: postgresql+psycopg://ecoaudit:${POSTGRES_PASSWORD:?defina POSTGRES_PASSWORD en .env}@db:5432/ecoaudit
+    ECOAUDIT_SECRET_KEY: ${ECOAUDIT_SECRET_KEY:?defina ECOAUDIT_SECRET_KEY en .env}
+    ECOAUDIT_INLINE_WORKER: "false"
+    ECOAUDIT_CORS_ORIGINS: http://localhost:8080
+  volumes:
+    - storage:/data
+  depends_on:
+    db:
+      condition: service_healthy
+
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ecoaudit
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ecoaudit
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ecoaudit"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  api:
+    <<: *backend
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health', timeout=3)"]
+      interval: 5s
+      timeout: 4s
+      retries: 12
+
+  worker:
+    <<: *backend
+    depends_on:
+      api:
+        condition: service_healthy
+    command: ["python", "-m", "app.worker"]
+
+  web:
+    build: ./frontend
+    ports:
+      - "8080:80"
+    depends_on:
+      api:
+        condition: service_healthy
+
+volumes:
+  pgdata:
+  storage:

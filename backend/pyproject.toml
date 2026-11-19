@@ -1,0 +1,47 @@
+[project]
+name = "ecoaudit-backend"
+version = "0.1.0"
+description = "API y worker de inferencia de EcoAudit (prototipo de investigación, no es un dispositivo médico)"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.30",
+    "sqlalchemy>=2.0",
+    "pydantic-settings>=2.3",
+    "email-validator>=2.1",
+    "pyjwt>=2.8",
+    "bcrypt>=4.1",
+    "python-multipart>=0.0.9",
+    "pillow>=10.3",
+    "reportlab>=4.2",
+    "numpy>=1.26",
+    "onnxruntime>=1.18",
+    "pydicom>=2.4",
+    "psycopg[binary]>=3.1",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.2",
+    "httpx>=0.27",
+    "onnx>=1.16",
+    "ruff>=0.5",
+]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["app*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+ignore = ["B008", "E501"]  # B008: Depends() por defecto es el patrón de FastAPI

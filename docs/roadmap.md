@@ -12,17 +12,29 @@
 
 Se implementaron la importación de etiquetas sobre análisis registrados, las métricas por paciente con bootstrap estratificado, los informes PDF de análisis y cohorte, el localizador supervisado y su comparación pareada. El manuscrito y los resultados internos se encuentran en [tesis](../tesis/README.md).
 
+## Tercera iteración
+
+Se implementaron las cohortes en tablas propias, creadas desde análisis existentes o por lote nuevo
+de hasta 1000 imágenes, con informe PDF y CSV de ítems. Se añadieron el cambio de contraseña, con
+invalidación de los tokens anteriores, el restablecimiento por administrador y el límite de intentos
+de ingreso. Los análisis interrumpidos se reencolan, los duplicados se buscan entre casos del mismo
+usuario y el investigador puede gestionar sus propios casos.
+
 ## Pendientes después de la evaluación interna
 
-1. **Auditoría.** Comparación pareada interactiva entre versiones, revisión de casi duplicados entre casos y evaluación formal de la cobertura de TRIPOD+AI.
-2. **ROI automático.** Evaluar el sistema en un origen independiente y estudiar el entrenamiento con recortes fuera de pliegue.
-3. **Validación externa.** Elegir un conjunto público que el proyecto nunca haya tocado, fijar el
+1. **Migraciones con Alembic.** En curso.
+2. **Pruebas de extremo a extremo** de la interfaz.
+3. **Comparación entre versiones de modelo** y evaluación formal de la cobertura de TRIPOD+AI
+   en el informe de auditoría.
+   - **ROI automático:** evaluarlo en un origen independiente y estudiar el entrenamiento con
+     recortes fuera de pliegue.
+4. **Validación externa.** Elegir un conjunto público que el proyecto nunca haya tocado, fijar el
    protocolo antes de mirar resultados y evaluar una sola vez. Con esos datos se validan también
    la zona de abstención y el umbral de cambio de dominio.
-4. **Robustez:** migraciones con Alembic, reencolado de análisis interrumpidos, cambio de
-   contraseña, límite de intentos de ingreso, pruebas de extremo a extremo de la interfaz.
 5. **Evaluación del software:** latencia, atributos de ISO/IEC 25010 y prueba de usabilidad (SUS)
    con médicos o residentes.
+6. **Interoperabilidad hospitalaria:** DICOM/PACS y HL7 FHIR.
+7. **Despliegue** con HTTPS y respaldos.
 
 ## Decisiones abiertas
 

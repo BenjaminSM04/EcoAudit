@@ -4,12 +4,16 @@ from __future__ import annotations
 from collections.abc import Iterator
 from functools import lru_cache
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from sqlalchemy import create_engine
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
 from .config import get_settings
+
+if TYPE_CHECKING:
+    from .migrate import MigrationReport
 
 
 class Base(DeclarativeBase):
@@ -45,7 +49,12 @@ def get_db() -> Iterator[Session]:
         db.close()
 
 
-def init_db() -> None:
-    from . import models  # noqa: F401  (registra las tablas)
+def init_db(engine: Engine | None = None) -> MigrationReport:
+    """Deja la base en la última revisión de Alembic (ver ``app.migrate``).
 
-    Base.metadata.create_all(get_engine())
+    Crea la base si no existe y adopta una anterior a Alembic. ``engine`` permite apuntar a otra
+    base, por ejemplo en las pruebas; por defecto es la de la configuración.
+    """
+    from .migrate import run_migrations
+
+    return run_migrations(engine or get_engine())

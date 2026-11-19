@@ -11,15 +11,18 @@ from . import __version__
 from .config import get_settings
 from .db import init_db, new_session
 from .routers import auth, cases, cohorts, model_registry, users
-from .worker import requeue_stale
+from .worker import requeue_stale, start_inline_drain
 
 
 @asynccontextmanager
-async def lifespan(_: FastAPI) -> AsyncIterator[None]:
+async def lifespan(api: FastAPI) -> AsyncIterator[None]:
     init_db()
     # Un análisis que quedó ``running`` porque el proceso anterior murió vuelve a la cola.
     with new_session() as db:
         requeue_stale(db)
+    # Sin worker aparte, nadie más tomaría los pendientes: se procesan en segundo plano, sin
+    # bloquear el arranque.
+    api.state.inline_drain = start_inline_drain() if get_settings().inline_worker else None
     yield
 
 

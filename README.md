@@ -68,6 +68,21 @@ npm run dev                       # http://localhost:5173
 
 En desarrollo la base de datos es SQLite (`backend/data/`) y el análisis corre dentro del proceso
 de la API. Para separar el worker: `ECOAUDIT_INLINE_WORKER=false` y `python -m app.worker`.
+Con el worker inline, al arrancar la API se procesan en segundo plano los análisis que quedaron
+pendientes.
+
+### Migraciones de la base de datos
+
+El esquema lo gestiona Alembic (`backend/alembic.ini`, `backend/migrations/`). La API, el worker y
+la CLI aplican las migraciones pendientes al arrancar; también se pueden aplicar a mano con
+`python -m app.cli db-upgrade`. Un cambio en `app/models.py` va acompañado de una migración nueva
+escrita a mano (`alembic revision -m "descripción"`, desde `backend/`).
+
+Una base creada antes de Alembic (sin la tabla `alembic_version`) se adopta una sola vez: se crean
+las tablas que faltan, se agregan las columnas ausentes que admitan NULL o tengan valor por
+defecto, y se marca la base como `0001`. Si falta una columna obligatoria sin valor por defecto,
+el arranque falla con un mensaje claro y no modifica nada. Detalles y límites en
+`backend/app/migrate.py`.
 
 ## Pruebas
 

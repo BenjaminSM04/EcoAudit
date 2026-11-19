@@ -1,0 +1,2 @@
+Migraciones de EcoAudit (Alembic). Ver la nota de adopción en app/migrate.py.
+Las migraciones se escriben a mano y no importan app.models: son una foto fija del esquema.

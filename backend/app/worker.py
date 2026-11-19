@@ -9,6 +9,7 @@ Uso: ``python -m app.worker``
 from __future__ import annotations
 
 import logging
+import threading
 import time
 from datetime import timedelta
 
@@ -153,6 +154,38 @@ def run_inline(analysis_id: int) -> None:
         process_analysis(db, analysis_id)
     finally:
         db.close()
+
+
+def drain_queue() -> int:
+    """Procesa los análisis pendientes hasta vaciar la cola. Devuelve cuántos procesó."""
+    processed = 0
+    db = new_session()
+    try:
+        while process_next(db):
+            processed += 1
+    except Exception:  # un fallo de la base no debe dejar el hilo en un bucle sin fin
+        log.exception("La cola se detuvo tras procesar %d análisis", processed)
+    finally:
+        db.close()
+    return processed
+
+
+def start_inline_drain() -> threading.Thread:
+    """Para ``inline_worker``: al arrancar la API, procesa en segundo plano lo que quedó pendiente.
+
+    ``requeue_stale`` devuelve a ``pending`` los análisis interrumpidos, pero en modo inline no
+    hay otro proceso que los tome. El hilo es daemon (no frena el cierre de la API) y termina solo
+    al vaciar la cola; los análisis nuevos los lanza cada petición con ``run_inline``.
+    """
+
+    def run() -> None:
+        processed = drain_queue()
+        if processed:
+            log.info("Cola inline vaciada: %d análisis procesados", processed)
+
+    thread = threading.Thread(target=run, name="ecoaudit-inline-drain", daemon=True)
+    thread.start()
+    return thread
 
 
 def main() -> None:

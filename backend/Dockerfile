@@ -5,6 +5,10 @@ WORKDIR /srv
 
 COPY pyproject.toml ./
 COPY app ./app
+# Migraciones de Alembic: alembic.ini y migrations/ deben quedar junto a app/ (init_db los ubica
+# relativo al paquete; uvicorn y `python -m app.*` cargan /srv/app, no la copia de site-packages).
+COPY alembic.ini ./
+COPY migrations ./migrations
 RUN pip install --no-cache-dir .
 
 RUN useradd --create-home ecoaudit && mkdir -p /data && chown ecoaudit /data

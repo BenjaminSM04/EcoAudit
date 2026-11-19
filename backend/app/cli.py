@@ -2,6 +2,7 @@
 
     python -m app.cli create-user --email a@b.c --name "Nombre" --role admin
     python -m app.cli register-model RUTA_DEL_BUNDLE --activate
+    python -m app.cli db-upgrade
 """
 from __future__ import annotations
 
@@ -14,6 +15,7 @@ from sqlalchemy import select
 
 from .db import init_db, new_session
 from .deps import record
+from .migrate import AdoptionError
 from .models import Role, User
 from .pipeline.bundle import BundleError
 from .registry import register_bundle
@@ -61,6 +63,16 @@ def _register_model(args: argparse.Namespace) -> int:
     return 0
 
 
+def _db_upgrade(args: argparse.Namespace) -> int:
+    report = init_db()
+    if report.adopted:
+        print("Base anterior a Alembic adoptada y marcada como 0001.")
+        print(f"  Tablas creadas: {', '.join(report.tables_created) or 'ninguna'}")
+        print(f"  Columnas agregadas: {', '.join(report.columns_added) or 'ninguna'}")
+    print(f"Base de datos en la revisión {report.revision}.")
+    return 0
+
+
 def _make_demo_bundle(args: argparse.Namespace) -> int:
     from .devtools import make_demo_bundle
 
@@ -91,9 +103,21 @@ def main(argv: list[str] | None = None) -> int:
     demo.add_argument("directory")
     demo.set_defaults(func=_make_demo_bundle)
 
+    upgrade = sub.add_parser(
+        "db-upgrade",
+        help="Lleva la base a la última migración (adopta antes una base anterior a Alembic)",
+    )
+    # Es la propia migración: no hace falta migrar antes de ejecutarla.
+    upgrade.set_defaults(func=_db_upgrade, skip_init=True)
+
     args = parser.parse_args(argv)
-    init_db()
-    return args.func(args)
+    try:
+        if not getattr(args, "skip_init", False):
+            init_db()
+        return args.func(args)
+    except AdoptionError as exc:
+        print(f"No se pudo migrar la base de datos: {exc}", file=sys.stderr)
+        return 1
 
 
 if __name__ == "__main__":

@@ -1,8 +1,12 @@
 import { useEffect, useRef, useState } from 'react'
-import type { PointerEvent as ReactPointerEvent } from 'react'
+import type { FormEvent, PointerEvent as ReactPointerEvent } from 'react'
 import { api, downloadFile } from '../api'
 import type { Analysis, CaseImage, ModelVersion, Roi } from '../api'
+import { Download, FileJson } from 'lucide-react'
 import { warningText } from '../labels'
+import { useAuth } from '../session'
+import { ReadingForm, ReadingSummary } from './Reading'
+import { Button, Toast } from './ui'
 import ResultPanel from './ResultPanel'
 import { useBlobUrl } from './useBlobUrl'
 
@@ -14,6 +18,7 @@ interface Props {
 const MIN_ROI = 8 // píxeles de imagen; el backend rechaza recortes menores
 
 export default function ImageWorkspace({ image, models }: Props) {
+  const { user } = useAuth()
   const imageUrl = useBlobUrl(`/api/images/${image.id}/file`)
   const [analysis, setAnalysis] = useState<Analysis | null>(image.analyses.at(-1) ?? null)
   const [roi, setRoi] = useState<Roi | null>(analysis?.roi ?? null)
@@ -24,19 +29,62 @@ export default function ImageWorkspace({ image, models }: Props) {
   const frameRef = useRef<HTMLDivElement>(null)
   const dragStart = useRef<{ x: number; y: number } | null>(null)
 
-  const camUrl = useBlobUrl(analysis?.has_cam ? `/api/analyses/${analysis.id}/cam` : null)
+  const [revealed, setRevealed] = useState<number | null>(null)
+  const [exporting, setExporting] = useState(false)
+  const [notice, setNotice] = useState('')
+  const revealKey = `ecoaudit.revealed.${user?.id}.${analysis?.id}`
+  let previouslyRevealed = false
+  try {
+    previouslyRevealed = sessionStorage.getItem(revealKey) === '1'
+  } catch {
+    // La revelación sigue disponible durante esta visita.
+  }
+  const complete = analysis?.status === 'done'
+  const hidden = complete && user?.role === 'medico' && !analysis.reading && revealed !== analysis.id && !previouslyRevealed
+  const camUrl = useBlobUrl(analysis?.has_cam && !hidden ? `/api/analyses/${analysis.id}/cam` : null)
+
+  function reveal() {
+    if (!analysis) return
+    setRevealed(analysis.id)
+    try {
+      sessionStorage.setItem(revealKey, '1')
+    } catch {
+      // El estado del visor conserva la elección.
+    }
+  }
+
+  async function exportResult(id: number, format: 'pdf' | 'fhir') {
+    setExporting(true)
+    setError(null)
+    setNotice('')
+    try {
+      if (format === 'fhir') await api.exportFhir(id)
+      else await downloadFile(`/api/analyses/${id}/report`, `analisis-${id}.pdf`)
+      setNotice(format === 'fhir' ? 'Exportación FHIR descargada.' : 'Informe PDF descargado.')
+    } catch (err) {
+      setError((err as Error).message)
+    } finally {
+      setExporting(false)
+    }
+  }
   const waiting = analysis?.status === 'pending' || analysis?.status === 'running'
 
   // Mientras el análisis está en cola o corriendo, se consulta cada segundo.
   useEffect(() => {
     if (!analysis || !waiting) return
-    const timer = setTimeout(() => {
-      api
-        .getAnalysis(analysis.id)
-        .then(setAnalysis)
-        .catch((err: Error) => setError(err.message))
-    }, 1000)
-    return () => clearTimeout(timer)
+    let alive = true
+    let timer: ReturnType<typeof setTimeout>
+    function poll(id: number) {
+      timer = setTimeout(() => {
+        void api.getAnalysis(id).then(next => {
+          if (alive) { setAnalysis(next); setError(null) }
+        }).catch((err: Error) => {
+          if (alive) { setError(err.message); poll(id) }
+        })
+      }, 1000)
+    }
+    poll(analysis.id)
+    return () => { alive = false; clearTimeout(timer) }
   }, [analysis, waiting])
 
   function toImagePoint(event: ReactPointerEvent): { x: number; y: number } {
@@ -75,9 +123,22 @@ export default function ImageWorkspace({ image, models }: Props) {
     )
   }
 
+  function applyCoordinates(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    const data = new FormData(event.currentTarget)
+    const candidate = { x: Number(data.get('x')), y: Number(data.get('y')), w: Number(data.get('w')), h: Number(data.get('h')) }
+    if (candidate.x + candidate.w > image.width || candidate.y + candidate.h > image.height) {
+      setError('La región debe quedar dentro de los límites de la imagen.')
+      return
+    }
+    setError(null)
+    setRoi(candidate)
+  }
+
   async function analyze() {
     setBusy(true)
     setError(null)
+    setNotice('')
     try {
       setAnalysis(await api.requestAnalysis(image.id, roi))
     } catch (err) {
@@ -108,7 +169,7 @@ export default function ImageWorkspace({ image, models }: Props) {
         <div
           className="frame"
           ref={frameRef}
-          style={{ aspectRatio: `${image.width} / ${image.height}` }}
+          style={{ aspectRatio: `${image.width} / ${image.height}`, maxWidth: `${65 * image.width / image.height}dvh` }}
           onPointerDown={onPointerDown}
           onPointerMove={onPointerMove}
           onPointerUp={onPointerUp}
@@ -119,7 +180,7 @@ export default function ImageWorkspace({ image, models }: Props) {
           ) : (
             <span className="frame-note">Cargando imagen…</span>
           )}
-          {camUrl && !changed && showCam && analysis?.status === 'done' && (
+          {camUrl && !hidden && !changed && showCam && complete && (
             <img
               className="cam"
               src={camUrl}
@@ -164,17 +225,41 @@ export default function ImageWorkspace({ image, models }: Props) {
             </button>
           )}
         </div>
+        <details className="small">
+          <summary>Definir ROI por coordenadas</summary>
+          <form className="page" onSubmit={applyCoordinates} key={roi ? [roi.x, roi.y, roi.w, roi.h].join(',') : 'full'}>
+            <div className="roi-fields">
+              {([['x', 'Posición X', 0, image.width - MIN_ROI], ['y', 'Posición Y', 0, image.height - MIN_ROI],
+                ['w', 'Ancho', MIN_ROI, image.width], ['h', 'Alto', MIN_ROI, image.height]] as const).map(([key, label, min, max]) =>
+                <label key={key}>{label} (px)<input name={key} type="number" min={min} max={max} required disabled={busy || waiting}
+                  defaultValue={roi ? Math.round(roi[key]) : undefined} /></label>)}
+            </div>
+            <Button type="submit" variant="secondary" disabled={busy || waiting}>Aplicar coordenadas</Button>
+          </form>
+        </details>
         {roi && <p className="muted small">Revise el recuadro antes de analizar. Puede volver a trazarlo.</p>}
-        {analysis?.status === 'done' && <button className="secondary" onClick={() =>
-          downloadFile(`/api/analyses/${analysis.id}/report`, `analisis-${analysis.id}.pdf`).catch(err => setError(err.message))
-        }>Descargar PDF · Análisis #{analysis.id}</button>}
-        {error && <p className="error">{error}</p>}
+        {error && <p className="error" role="alert">{error}</p>}
 
         {analysis === null && <p className="muted">Esta imagen todavía no fue analizada.</p>}
         {changed && analysis?.status === 'done' && <p className="banner">La región seleccionada cambió. El informe anterior corresponde al análisis #{analysis.id}. Vuelva a analizar para obtener el resultado de esta selección.</p>}
-        {analysis !== null && !changed && <ResultPanel analysis={analysis} model={model} />}
+        {analysis && !changed && !hidden && <ResultPanel analysis={analysis} model={model} />}
+        {analysis && complete && !changed && (
+          analysis.reading ? <ReadingSummary analysis={analysis} reading={analysis.reading} />
+            : user?.role !== 'investigador' && <ReadingForm key={analysis.id} id={analysis.id} blinded={hidden}
+              onReveal={hidden ? reveal : undefined} onSaved={reading => setAnalysis(current =>
+                current?.id === reading.analysis_id ? { ...current, reading } : current)} />
+        )}
+        {analysis && complete && !hidden && !changed && <div className="actions">
+          <Button variant="secondary" disabled={exporting} onClick={() => void exportResult(analysis.id, 'pdf')}>
+            <Download size={16} aria-hidden="true" /> Descargar PDF · Análisis #{analysis.id}
+          </Button>
+          <Button variant="secondary" disabled={exporting} onClick={() => void exportResult(analysis.id, 'fhir')}>
+            <FileJson size={16} aria-hidden="true" /> Exportar FHIR
+          </Button>
+        </div>}
+        {notice && !changed && <Toast>{notice}</Toast>}
 
-        {analysis?.status === 'done' && analysis.has_cam && !changed && (
+        {complete && !hidden && analysis.has_cam && !changed && (
           <div className="cam-controls">
             <label className="check">
               <input

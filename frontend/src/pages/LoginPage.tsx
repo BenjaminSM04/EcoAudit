@@ -1,5 +1,8 @@
 import { useState } from 'react'
 import type { FormEvent } from 'react'
+import { Activity, ArrowRight, Fingerprint, ScanLine, ShieldAlert } from 'lucide-react'
+import { Brand, Disclaimer } from '../components/Brand'
+import { Button, Toast } from '../components/ui'
 import { useAuth } from '../session'
 
 export default function LoginPage() {
@@ -24,11 +27,23 @@ export default function LoginPage() {
 
   return (
     <div className="login">
-      <form className="card" onSubmit={submit}>
-        <h1>EcoAudit</h1>
-        <p className="muted">
-          Apoyo a la clasificación de lesiones mamarias en ecografía. Prototipo de investigación.
-        </p>
+      <section className="login-intro">
+        <Brand />
+        <div className="login-intro-content">
+          <h1>Ecografía mamaria e investigación clínica</h1>
+          <p>Apoyo a la clasificación de lesiones y a la auditoría de modelos en ecografía.</p>
+          <ul className="login-features">
+            <li><ScanLine aria-hidden="true" /><span><strong>Calibración con abstención</strong><small>Identifica la zona en que el modelo se abstiene.</small></span></li>
+            <li><ShieldAlert aria-hidden="true" /><span><strong>Alerta de cambio de dominio</strong><small>Señala imágenes que difieren de la referencia del modelo.</small></span></li>
+            <li><Fingerprint aria-hidden="true" /><span><strong>Trazabilidad del modelo</strong><small>Vincula cada análisis a la versión que lo produjo.</small></span></li>
+          </ul>
+        </div>
+        <Activity className="login-wave" aria-hidden="true" />
+      </section>
+      <main className="login-access">
+        <form className="card" onSubmit={submit}>
+          <h2>Iniciar sesión</h2>
+          <p className="muted">Ingrese con su cuenta de EcoAudit.</p>
         <label>
           Correo
           <input
@@ -51,19 +66,19 @@ export default function LoginPage() {
           />
         </label>
         {notice && (
-          <p className="banner" role="status">
-            {notice}
-          </p>
+          <Toast>{notice}</Toast>
         )}
         {error && (
           <p className="error" role="alert">
             {error}
           </p>
         )}
-        <button type="submit" disabled={busy}>
-          {busy ? 'Ingresando…' : 'Ingresar'}
-        </button>
-      </form>
+        <Button type="submit" disabled={busy}>
+          {busy ? 'Ingresando…' : 'Ingresar'} <ArrowRight size={18} aria-hidden="true" />
+        </Button>
+        </form>
+        <Disclaimer />
+      </main>
     </div>
   )
 }

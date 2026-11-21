@@ -24,6 +24,14 @@ BUSI→BUS-BRA (repositorio `busgen`), que aquí se convierten en requisitos de 
 
 - Auditoría de cohortes etiquetadas en CSV para investigadores y administradores, con AUROC e intervalo por paciente, calibración e informe PDF.
 - Sugerencia experimental de ROI aprendida de máscaras. El usuario revisa la propuesta antes de solicitar el análisis. Cada resultado terminado admite descarga en PDF.
+- Panel de indicadores: actividad, distribución de decisiones, tasa de abstención, alertas de dominio y latencia.
+- Lectura clínica BI-RADS ciega antes de ver el resultado del modelo y concordancia médico–modelo (kappa de Cohen).
+- Integración hospitalaria: exportación HL7 FHIR R4 de cada análisis y recepción DICOMweb (STOW-RS) desde PACS o ecógrafo, con seudónimo derivado de PatientID ([API hospitalaria](docs/api-hospitalaria.md)).
+- Reanálisis de una cohorte con otra versión de modelo y comparación pareada de AUROC.
+- Bitácora consultable y exportable para administradores.
+- Interfaz rediseñada con un sistema de diseño propio en tonos rosa, adaptable a móvil.
+
+La [documentación de ingeniería](docs/ingenieria/README.md) reúne requisitos, casos de uso, modelado (C4, ER, secuencias), trazabilidad, metodología Scrum, plan de pruebas, evaluación ISO/IEC 25010, protocolo SUS, manuales y la propuesta para hospitales.
 
 El [manuscrito de tesis](tesis/EcoAudit.docx) contiene el protocolo, los resultados y sus límites.
 La [guía de reproducción](tesis/README.md) explica cómo repetir el experimento y usar la auditoría.

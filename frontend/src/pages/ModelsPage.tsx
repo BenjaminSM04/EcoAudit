@@ -3,10 +3,13 @@ import { api } from '../api'
 import type { ModelVersion } from '../api'
 import { useAuth } from '../session'
 import { dateTime, percent } from '../labels'
+import { Badge, EmptyState, Skeleton, Toast } from '../components/ui'
 
 export default function ModelsPage() {
   const { user } = useAuth()
   const [models, setModels] = useState<ModelVersion[] | null>(null)
+  const [notice, setNotice] = useState('')
+  const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
@@ -18,40 +21,39 @@ export default function ModelsPage() {
 
   async function activate(id: number) {
     setError(null)
+    setNotice('')
+    setBusy(true)
     try {
       await api.activateModel(id)
       setModels(await api.listModels())
+      setNotice('Modelo activo actualizado.')
     } catch (err) {
       setError(err instanceof Error ? err.message : 'No se pudo activar el modelo.')
+    } finally {
+      setBusy(false)
     }
   }
 
   return (
     <div className="page">
-      <h1>Modelos</h1>
-      <p className="muted">
-        Cada versión es un paquete inmutable identificado por su hash. Todo análisis queda ligado a
-        la versión que lo produjo.
-      </p>
-      {error && <p className="error">{error}</p>}
-      {models === null && !error && <p className="muted">Cargando…</p>}
+      <div className="page-heading"><div><h1>Modelos</h1><p>Cada análisis queda ligado a la versión del modelo que lo produjo.</p></div></div>
+      {error && <p className="error" role="alert">{error}</p>}
+      {notice && <Toast>{notice}</Toast>}
+      {models === null && !error && <Skeleton />}
       {models !== null && models.length === 0 && (
-        <p className="muted">
-          No hay modelos registrados. Se registran desde el servidor con{' '}
-          <code>python -m app.cli register-model RUTA --activate</code>.
-        </p>
+        <EmptyState>No hay modelos registrados.</EmptyState>
       )}
-      {models?.map((model) => (
+      <div className="comparison-grid">{models?.map((model) => (
         <section className="card model" key={model.id}>
           <header>
             <h2>
               {model.name} <span className="muted">{model.version}</span>
             </h2>
             {model.is_active ? (
-              <span className="pill">Activo</span>
+              <Badge tone="benign">Activo</Badge>
             ) : (
               user?.role === 'admin' && (
-                <button className="secondary" onClick={() => activate(model.id)}>
+                <button className="secondary" disabled={busy} onClick={() => activate(model.id)}>
                   Activar
                 </button>
               )
@@ -98,7 +100,7 @@ export default function ModelsPage() {
             </dd>
           </dl>
         </section>
-      ))}
+      ))}</div>
     </div>
   )
 }

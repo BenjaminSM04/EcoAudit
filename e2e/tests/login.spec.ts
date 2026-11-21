@@ -22,9 +22,9 @@ test.describe('Inicio y cierre de sesión', () => {
     const { name } = credentials('medico')
     await login(page, 'medico')
 
-    // El médico aterriza en Casos y la barra muestra su nombre y su rol.
-    await expect(page).toHaveURL(/\/casos$/)
-    await expect(page.getByRole('heading', { name: 'Casos', level: 1 })).toBeVisible()
+    // El médico aterriza en el Panel y la barra muestra su nombre y su rol.
+    await expect(page).toHaveURL(/\/panel$/)
+    await expect(page.getByRole('heading', { name: 'Panel', level: 1 })).toBeVisible()
     await expect(page.locator('.session')).toContainText(`${name} · Médico`)
 
     await logout(page)

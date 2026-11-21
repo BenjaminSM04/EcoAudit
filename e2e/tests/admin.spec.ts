@@ -20,6 +20,7 @@ test.describe('Administrador', () => {
     const initialPassword = `Inicial-${randomBytes(9).toString('base64url')}`
     const resetPassword = `Reinicio-${randomBytes(9).toString('base64url')}`
 
+    await page.getByRole('button', { name: 'Nuevo usuario' }).click()
     await page.getByLabel('Nombre', { exact: true }).fill(fullName)
     await page.getByLabel('Correo').fill(email)
     await page.getByLabel('Contraseña inicial').fill(initialPassword)
@@ -45,7 +46,7 @@ test.describe('Administrador', () => {
     )
 
     // Su sesión abierta se cerró: la siguiente petición lo devuelve al ingreso.
-    await otherPage.getByRole('navigation').getByRole('link', { name: 'Modelos' }).click()
+    await otherPage.getByRole('navigation').getByRole('link', { name: 'Modelos', exact: true }).click()
     await expect(otherPage.getByRole('button', { name: 'Ingresar' })).toBeVisible()
     await other.close()
 
@@ -66,7 +67,7 @@ test.describe('Administrador', () => {
 
   test('la página de modelos muestra el modelo activo', async ({ page }) => {
     await login(page, 'admin')
-    await page.getByRole('navigation').getByRole('link', { name: 'Modelos' }).click()
+    await page.getByRole('navigation').getByRole('link', { name: 'Modelos', exact: true }).click()
     await expect(page).toHaveURL(/\/modelos$/)
     await expect(page.getByRole('heading', { name: 'Modelos', level: 1 })).toBeVisible()
 
@@ -86,14 +87,14 @@ test.describe('Administrador', () => {
     await login(page, 'medico')
     const nav = page.getByRole('navigation')
     await expect(nav.getByRole('link', { name: 'Casos' })).toBeVisible()
-    await expect(nav.getByRole('link', { name: 'Modelos' })).toBeVisible()
+    await expect(nav.getByRole('link', { name: 'Modelos', exact: true })).toBeVisible()
     await expect(nav.getByRole('link', { name: 'Auditoría' })).toHaveCount(0)
     await expect(nav.getByRole('link', { name: 'Usuarios' })).toHaveCount(0)
 
     // Tampoco entra escribiendo la dirección: la ruta no existe para su rol.
     for (const path of ['/auditoria', '/usuarios']) {
       await page.goto(path)
-      await expect(page).toHaveURL(/\/casos$/)
+      await expect(page).toHaveURL(/\/panel$/)
     }
   })
 
@@ -101,7 +102,7 @@ test.describe('Administrador', () => {
     await login(page, 'admin')
     const nav = page.getByRole('navigation')
     for (const link of ['Casos', 'Auditoría', 'Modelos', 'Usuarios']) {
-      await expect(nav.getByRole('link', { name: link })).toBeVisible()
+      await expect(nav.getByRole('link', { name: link, exact: true })).toBeVisible()
     }
   })
 })

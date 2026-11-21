@@ -3,6 +3,8 @@ import type { FormEvent } from 'react'
 import { api } from '../api'
 import { useAuth } from '../session'
 import { ROLE } from '../labels'
+import { LockKeyhole, UserRound } from 'lucide-react'
+import { Card } from '../components/ui'
 
 const MIN_LENGTH = 10
 const MAX_LENGTH = 128
@@ -44,20 +46,21 @@ export default function AccountPage() {
 
   return (
     <div className="page">
-      <h1>Mi cuenta</h1>
+      <div className="page-heading"><div><h1>Mi cuenta</h1><p>Perfil y contraseña de acceso.</p></div></div>
+      <div className="account-grid">
       {user && (
-        <dl className="card">
+        <Card className="page"><div className="stat-icon tone-brand"><UserRound size={20} aria-hidden="true" /></div><h2>Perfil</h2><dl>
           <dt>Nombre</dt>
           <dd>{user.full_name}</dd>
           <dt>Correo</dt>
           <dd>{user.email}</dd>
           <dt>Rol</dt>
           <dd>{ROLE[user.role]}</dd>
-        </dl>
+        </dl></Card>
       )}
 
-      <form className="card inline-form" onSubmit={submit}>
-        <h2 className="full">Cambiar contraseña</h2>
+      <form className="card page" onSubmit={submit}>
+        <div className="stat-icon tone-brand"><LockKeyhole size={20} aria-hidden="true" /></div><h2>Cambiar contraseña</h2>
         <p className="muted full">
           La nueva contraseña debe tener entre {MIN_LENGTH} y {MAX_LENGTH} caracteres. Al
           cambiarla se cerrará esta sesión y deberá ingresar de nuevo.
@@ -106,6 +109,7 @@ export default function AccountPage() {
           </p>
         )}
       </form>
+      </div>
     </div>
   )
 }

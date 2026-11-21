@@ -20,10 +20,18 @@ invalidación de los tokens anteriores, el restablecimiento por administrador y 
 de ingreso. Los análisis interrumpidos se reencolan, los duplicados se buscan entre casos del mismo
 usuario y el investigador puede gestionar sus propios casos.
 
+## Cuarta iteración
+
+Se implementaron el panel de indicadores con latencias por versión de modelo, la lectura clínica
+BI-RADS ciega con concordancia médico–modelo, la exportación HL7 FHIR R4, la recepción DICOMweb
+STOW-RS, la consulta de la bitácora y la comparación pareada de versiones de modelo sobre una
+cohorte. La interfaz se rediseñó con un sistema de diseño propio y se documentó el proceso de
+ingeniería en [docs/ingenieria](ingenieria/README.md).
+
 ## Pendientes después de la evaluación interna
 
-1. **Migraciones con Alembic.** En curso.
-2. **Pruebas de extremo a extremo** de la interfaz.
+1. **Migraciones con Alembic.** Hechas (0001 y 0002).
+2. **Pruebas de extremo a extremo** de la interfaz. Hechas (14 flujos con Playwright).
 3. **Comparación entre versiones de modelo** y evaluación formal de la cobertura de TRIPOD+AI
    en el informe de auditoría.
    - **ROI automático:** evaluarlo en un origen independiente y estudiar el entrenamiento con

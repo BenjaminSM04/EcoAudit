@@ -60,7 +60,7 @@ test('cambiar la contraseña cierra la sesión y la nueva contraseña funciona',
     expect(token).toBeNull()
 
     // La otra sesión, abierta antes del cambio, deja de valer: su siguiente petición la expulsa.
-    await otherPage.getByRole('navigation').getByRole('link', { name: 'Modelos' }).click()
+    await otherPage.getByRole('navigation').getByRole('link', { name: 'Modelos', exact: true }).click()
     await expect(otherPage.getByRole('button', { name: 'Ingresar' })).toBeVisible()
 
     // La nueva contraseña funciona de inmediato (el token nuevo no queda invalidado por el cambio).

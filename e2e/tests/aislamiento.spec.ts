@@ -5,8 +5,10 @@ test('un segundo médico no ve el caso del primero', async ({ page, browser, bas
   // Primer médico: crea su caso.
   await login(page, 'medico')
   const patientRef = `AISLADO-${Date.now()}`
-  await page.getByLabel('Seudónimo del paciente').fill(patientRef)
+  await page.getByRole('navigation').getByRole('link', { name: 'Casos', exact: true }).click()
   await page.getByRole('button', { name: 'Nuevo caso' }).click()
+  await page.getByLabel('Seudónimo del paciente').fill(patientRef)
+  await page.getByRole('button', { name: 'Crear caso' }).click()
   await expect(page).toHaveURL(/\/casos\/\d+$/)
   const caseUrl = page.url()
   await expect(page.getByRole('heading', { level: 1 })).toContainText(patientRef)
@@ -16,6 +18,7 @@ test('un segundo médico no ve el caso del primero', async ({ page, browser, bas
   try {
     const second = await other.newPage()
     await login(second, 'medico2')
+    await second.getByRole('navigation').getByRole('link', { name: 'Casos', exact: true }).click()
     await expect(second.getByRole('heading', { name: 'Casos', level: 1 })).toBeVisible()
     await expect(second.getByText('Cargando…')).toHaveCount(0)
     await expect(second.getByText(patientRef)).toHaveCount(0)

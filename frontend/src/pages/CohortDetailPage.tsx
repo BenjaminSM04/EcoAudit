@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react'
-import { Link, useParams } from 'react-router-dom'
+import { Link, useNavigate, useParams } from 'react-router-dom'
+import { Activity, Gauge, RefreshCw, Target } from 'lucide-react'
+import { Badge, Button, Modal, Skeleton, StatCard, Table } from '../components/ui'
 import { ApiError, api, downloadCohortItems, downloadCohortReport } from '../api'
-import type { CohortDetail, CohortMetrics } from '../api'
+import type { CohortDetail, CohortMetrics, ModelVersion } from '../api'
 import {
   COHORT_SOURCE,
   COHORT_STATUS,
@@ -24,6 +26,7 @@ export default function CohortDetailPage() {
   const [tick, setTick] = useState(0)
   const [error, setError] = useState<string | null>(null)
   const [downloading, setDownloading] = useState<Download | null>(null)
+  const [reanalyzing, setReanalyzing] = useState(false)
 
   // Si la ruta cambia de cohorte, el detalle anterior no vale.
   const detail = loaded !== null && loaded.id === cohortId ? loaded : null
@@ -92,7 +95,7 @@ export default function CohortDetailPage() {
             {error}
           </p>
         ) : (
-          <p className="muted">Cargando…</p>
+          <Skeleton />
         )}
       </div>
     )
@@ -102,11 +105,11 @@ export default function CohortDetailPage() {
   return (
     <div className="page">
       <Link to="/auditoria">← Auditoría</Link>
-      <h1>{detail.name}</h1>
-      <p className="muted">
-        {COHORT_SOURCE[detail.source]} · {detail.model} · creada el {dateTime(detail.created_at)} ·{' '}
-        {COHORT_STATUS[detail.status]}
-      </p>
+      <div className="page-heading">
+        <div><h1>{detail.name}</h1><p>{COHORT_SOURCE[detail.source]} · {detail.model} · {dateTime(detail.created_at)}</p></div>
+        <Badge tone={detail.status === 'done' ? 'benign' : detail.status === 'failed' ? 'suspicious' : 'neutral'}>{COHORT_STATUS[detail.status]}</Badge>
+      </div>
+      {reanalyzing && <ReanalyzeModal id={cohortId} currentModel={detail.model} onClose={() => setReanalyzing(false)} />}
       {error && (
         <div className="error" role="alert">
           <p>{error}</p>
@@ -127,7 +130,7 @@ export default function CohortDetailPage() {
       {detail.status === 'processing' && (
         <section className="card page">
           <h2>Procesando</h2>
-          <progress value={progress.done} max={Math.max(progress.total, 1)} />
+          <progress aria-label="Imágenes analizadas" value={progress.done} max={Math.max(progress.total, 1)} />
           <p role="status">
             Analizadas {progress.done} de {progress.total} imágenes
             {progress.failed > 0 && ` (${progress.failed} con fallo)`}.
@@ -158,6 +161,7 @@ export default function CohortDetailPage() {
 
       {detail.status !== 'processing' && (
         <div className="actions">
+          <Button variant="secondary" onClick={() => setReanalyzing(true)}><RefreshCw size={16} aria-hidden="true" /> Reanalizar con otro modelo</Button>
           {detail.status === 'done' && (
             <button disabled={downloading !== null} onClick={() => void download('pdf')}>
               {downloading === 'pdf' ? 'Descargando…' : 'Descargar informe PDF'}
@@ -177,11 +181,7 @@ export default function CohortDetailPage() {
 }
 
 function MetricsView({ results }: { results: CohortMetrics }) {
-  const tiles: [string, number][] = [
-    ['AUROC', results.auc],
-    ['Brier', results.brier],
-    ['ECE', results.ece],
-  ]
+
   // Primero las decisiones conocidas, en orden; después cualquier código inesperado.
   const decisionCodes = [
     ...DECISION_ORDER,
@@ -197,25 +197,18 @@ function MetricsView({ results }: { results: CohortMetrics }) {
       <p>
         {results.images} imágenes · {results.patients} pacientes · {results.positive} positivos
       </p>
-      <div className="metrics">
-        {tiles.map(([label, value]) => (
-          <div key={label}>
-            <span>{label}</span>
-            <strong>{decimal(value)}</strong>
-          </div>
-        ))}
+      <div className="cohort-stats">
+        <StatCard icon={Activity} label="AUROC" value={decimal(results.auc)} detail={`IC del 95 % · ${results.ci ? `${decimal(results.ci[0])} a ${decimal(results.ci[1])}` : 'Muestra insuficiente'}`} />
+        <StatCard icon={Target} label="Brier" value={decimal(results.brier)} />
+        <StatCard icon={Gauge} label="Error de calibración (ECE)" value={decimal(results.ece)} />
       </div>
-      <p>
-        IC del 95 % para AUROC ·{' '}
-        {results.ci ? `${decimal(results.ci[0])} – ${decimal(results.ci[1])}` : 'Muestra insuficiente'}
-      </p>
       <p>
         {results.abstentions} de {results.images} imágenes produjeron abstención. La evaluación
         incluye todas las puntuaciones.
       </p>
 
       <h3>Decisiones</h3>
-      <table>
+      <Table label="Decisiones por imagen">
         <thead>
           <tr>
             <th>Decisión</th>
@@ -230,10 +223,11 @@ function MetricsView({ results }: { results: CohortMetrics }) {
             </tr>
           ))}
         </tbody>
-      </table>
+      </Table>
 
       <h3>Calibración observada</h3>
-      <table>
+      <CalibrationPlot bins={results.bins} />
+      <Table label="Calibración por banda">
         <thead>
           <tr>
             <th>Banda</th>
@@ -254,7 +248,7 @@ function MetricsView({ results }: { results: CohortMetrics }) {
             </tr>
           ))}
         </tbody>
-      </table>
+      </Table>
 
       <dl className="small">
         <dt>Modelo (sha256)</dt>
@@ -268,4 +262,63 @@ function MetricsView({ results }: { results: CohortMetrics }) {
       </dl>
     </section>
   )
+}
+
+function ReanalyzeModal({ id, currentModel, onClose }: { id: number; currentModel: string; onClose: () => void }) {
+  const navigate = useNavigate()
+  const [models, setModels] = useState<ModelVersion[] | null>(null)
+  const [selected, setSelected] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    void api.listModels().then(items => setModels(items.filter(model => `${model.name} ${model.version}` !== currentModel)))
+      .catch((err: Error) => setError(err.message))
+  }, [currentModel])
+
+  async function reanalyze() {
+    setBusy(true)
+    setError('')
+    try {
+      const cohort = await api.reanalyze(id, Number(selected))
+      navigate(`/auditoria/${cohort.id}`)
+    } catch (err) {
+      setError((err as Error).message)
+      setBusy(false)
+    }
+  }
+
+  return <Modal title="Reanalizar con otro modelo" onClose={onClose} busy={busy}>
+    <form className="page" onSubmit={event => { event.preventDefault(); void reanalyze() }}>
+      <p className="muted">Se creará una cohorte con las mismas imágenes, regiones y etiquetas.</p>
+      {!models && !error && <Skeleton />}
+      {models?.length === 0 && <p>Solo está registrada la versión de esta cohorte.</p>}
+      {!!models?.length && <><label>Versión del modelo<select aria-label="Versión del modelo" required value={selected} disabled={busy} onChange={event => setSelected(event.target.value)}>
+        <option value="">Seleccione una versión</option>
+        {models.map(model => <option value={model.id} key={model.id}>{model.name} {model.version}{model.is_active ? ' · Activo' : ''}</option>)}
+      </select></label><Button type="submit" disabled={busy || !selected}>{busy ? 'Enviando…' : 'Crear cohorte y reanalizar'}</Button></>}
+      {error && <p className="error" role="alert">{error}</p>}
+    </form>
+  </Modal>
+}
+
+function CalibrationPlot({ bins }: { bins: CohortMetrics['bins'] }) {
+  const x = (value: number) => 40 + value * 280
+  const y = (value: number) => 155 - value * 130
+  const points = bins.filter(bin => bin.n > 0).map(bin => ({ ...bin, x: x(bin.predicted), y: y(bin.observed) }))
+  return <figure className="calibration-plot">
+    <svg viewBox="0 0 350 190" aria-hidden="true">
+      <path d="M40 25v130h280" fill="none" stroke="var(--muted)" />
+      <path d="M40 155 320 25" stroke="var(--muted)" strokeDasharray="4 4" />
+      <polyline points={points.map(point => `${point.x},${point.y}`).join(' ')} fill="none" stroke="var(--brand)" strokeWidth="2" />
+      {points.map(point => <circle key={point.bin} cx={point.x} cy={point.y} r="4" fill="var(--brand)" />)}
+      <g fill="var(--muted)" fontSize="10">
+        <text x="44" y="18">Proporción observada</text>
+        <text x="181" y="182" textAnchor="middle">Probabilidad media</text>
+        <text x="20" y="29">1</text><text x="20" y="158">0</text>
+        <text x="39" y="169">0</text><text x="315" y="169">1</text>
+      </g>
+    </svg>
+    <figcaption className="small muted">La diagonal punteada indica calibración perfecta. Los puntos corresponden a las bandas con pacientes.</figcaption>
+  </figure>
 }

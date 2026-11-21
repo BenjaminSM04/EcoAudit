@@ -6,11 +6,14 @@ import type { CohortSummary } from '../api'
 import { COHORT_SOURCE, COHORT_STATUS, dateTime, progressText } from '../labels'
 import { MANIFEST_EXAMPLE, MANIFEST_HEADER, MAX_BATCH_IMAGES, checkManifest } from '../manifest'
 import type { ManifestCheck } from '../manifest'
+import { CheckCircle2, ClipboardList, LoaderCircle } from 'lucide-react'
+import { Badge, EmptyState, Skeleton, StatCard, Table, Tabs } from '../components/ui'
 
 const IMAGE_ACCEPT = '.png,.jpg,.jpeg,.bmp,.tif,.tiff,.dcm,image/*,application/dicom'
 const LIST_PREVIEW = 15
 
 export default function AuditPage() {
+  const [tab, setTab] = useState('batch')
   const [cohorts, setCohorts] = useState<CohortSummary[] | null>(null)
   const [error, setError] = useState<string | null>(null)
 
@@ -23,21 +26,25 @@ export default function AuditPage() {
 
   return (
     <div className="page">
-      <h1>Auditoría de cohortes</h1>
-      <p className="muted">
-        Una cohorte reúne imágenes con su etiqueta de referencia (0 benigna, 1 maligna) y mide qué
-        tan bien discrimina y calibra el modelo, agrupando por paciente.
-      </p>
+      <div className="page-heading">
+        <div><h1>Auditoría de cohortes</h1><p>Evalúe la discriminación y la calibración del modelo por paciente con imágenes etiquetadas.</p></div>
+        <Link className="button secondary" to="/comparar">Comparar modelos</Link>
+      </div>
 
+      {cohorts && <div className="cohort-stats" aria-label="Indicadores de auditoría" role="region">
+        <StatCard icon={ClipboardList} label="Cohortes" value={cohorts.length} />
+        <StatCard icon={CheckCircle2} label="Terminadas" value={cohorts.filter(item => item.status === 'done').length} tone="benign" />
+        <StatCard icon={LoaderCircle} label="En proceso" value={cohorts.filter(item => item.status === 'processing').length} tone="neutral" />
+      </div>}
       <section className="card page">
-        <h2>Mis cohortes</h2>
-        {error && <p className="error">{error}</p>}
-        {cohorts === null && !error && <p className="muted">Cargando…</p>}
+        <h2>Cohortes registradas <span className="count">{cohorts?.length ?? 0}</span></h2>
+        {error && <p className="error" role="alert">{error}</p>}
+        {cohorts === null && !error && <Skeleton />}
         {cohorts !== null && cohorts.length === 0 && (
-          <p className="muted">Todavía no hay cohortes. Cree la primera con uno de los formularios.</p>
+          <EmptyState>Todavía no hay cohortes. Cree la primera con uno de los formularios.</EmptyState>
         )}
         {cohorts !== null && cohorts.length > 0 && (
-          <table>
+          <Table label="Cohortes registradas">
             <thead>
               <tr>
                 <th>Nombre</th>
@@ -54,18 +61,19 @@ export default function AuditPage() {
                     <Link to={`/auditoria/${cohort.id}`}>{cohort.name}</Link>
                   </td>
                   <td>{COHORT_SOURCE[cohort.source]}</td>
-                  <td>{COHORT_STATUS[cohort.status]}</td>
+                  <td><Badge tone={cohort.status === 'done' ? 'benign' : cohort.status === 'failed' ? 'suspicious' : 'neutral'}>{COHORT_STATUS[cohort.status]}</Badge></td>
                   <td>{progressText(cohort.progress)}</td>
                   <td>{dateTime(cohort.created_at)}</td>
                 </tr>
               ))}
             </tbody>
-          </table>
+          </Table>
         )}
       </section>
 
-      <BatchForm />
-      <AnalysesForm />
+      <Tabs label="Origen de la cohorte" options={[{ id: 'batch', label: 'Nuevo lote' }, { id: 'analyses', label: 'Análisis existentes' }]} value={tab} onChange={setTab}>
+        {tab === 'batch' ? <BatchForm /> : <AnalysesForm />}
+      </Tabs>
     </div>
   )
 }

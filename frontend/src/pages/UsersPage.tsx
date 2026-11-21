@@ -5,6 +5,8 @@ import { api } from '../api'
 import type { Role, User } from '../api'
 import { useAuth } from '../session'
 import { ROLE } from '../labels'
+import { Pencil, UserPlus } from 'lucide-react'
+import { Badge, Button, Card, Modal, Skeleton, Table, Toast } from '../components/ui'
 
 const EMPTY = { email: '', full_name: '', password: '', role: 'medico' as Role }
 const MIN_PASSWORD = 10
@@ -17,6 +19,8 @@ export default function UsersPage() {
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  const [creating, setCreating] = useState(false)
+  const [editing, setEditing] = useState<User | null>(null)
   // Usuario cuyo restablecimiento de contraseña está desplegado (una fila a la vez).
   const [resetting, setResetting] = useState<number | null>(null)
   const [newPassword, setNewPassword] = useState('')
@@ -48,6 +52,8 @@ export default function UsersPage() {
     void run(async () => {
       await api.createUser(form)
       setForm(EMPTY)
+      setCreating(false)
+      setNotice('Usuario creado.')
     })
   }
 
@@ -83,9 +89,10 @@ export default function UsersPage() {
 
   return (
     <div className="page">
-      <h1>Usuarios</h1>
-
-      <form className="card inline-form" onSubmit={create}>
+      <div className="page-heading"><div><h1>Usuarios</h1><p>Administre las cuentas, los roles y el acceso a EcoAudit.</p></div>
+        <Button onClick={() => { setForm(EMPTY); setError(null); setCreating(true) }}><UserPlus size={18} aria-hidden="true" /> Nuevo usuario</Button></div>
+      {creating && <Modal title="Nuevo usuario" busy={busy} onClose={() => { setCreating(false); setError(null) }}>
+      <form className="page" onSubmit={create}>
         <label>
           Nombre
           <input
@@ -108,7 +115,8 @@ export default function UsersPage() {
           <input
             type="password"
             autoComplete="new-password"
-            minLength={10}
+            minLength={MIN_PASSWORD}
+            maxLength={MAX_PASSWORD}
             value={form.password}
             onChange={(e) => setForm({ ...form, password: e.target.value })}
             required
@@ -117,6 +125,7 @@ export default function UsersPage() {
         <label>
           Rol
           <select
+            aria-label="Rol"
             value={form.role}
             onChange={(e) => setForm({ ...form, role: e.target.value as Role })}
           >
@@ -130,28 +139,44 @@ export default function UsersPage() {
         <button type="submit" disabled={busy}>
           Crear usuario
         </button>
-      </form>
+        {error && <p className="error" role="alert">{error}</p>}
+      </form></Modal>}
 
-      {error && (
+      {editing && <Modal title="Editar usuario" busy={busy} onClose={() => { setEditing(null); setError(null) }}>
+        <form className="page" onSubmit={event => {
+          event.preventDefault()
+          void run(async () => {
+            await api.updateUser(editing.id, { role: editing.role, is_active: editing.is_active })
+            setEditing(null)
+            setNotice('Usuario actualizado.')
+          })
+        }}>
+          <p><strong>{editing.full_name}</strong> · {editing.email}</p>
+          <label>Rol<select aria-label="Rol" value={editing.role} onChange={event => setEditing({ ...editing, role: event.target.value as Role })}>
+            {Object.entries(ROLE).map(([id, label]) => <option value={id} key={id}>{label}</option>)}
+          </select></label>
+          <label className="check"><input type="checkbox" checked={editing.is_active} onChange={event => setEditing({ ...editing, is_active: event.target.checked })} /> Cuenta activa</label>
+          {error && <p className="error" role="alert">{error}</p>}
+          <Button type="submit" disabled={busy}>Guardar cambios</Button>
+        </form>
+      </Modal>}
+
+      {error && !creating && !editing && (
         <p className="error" role="alert">
           {error}
         </p>
       )}
-      {notice && (
-        <p className="banner" role="status">
-          {notice}
-        </p>
-      )}
-      {users === null && !error && <p className="muted">Cargando…</p>}
+      {notice && <Toast>{notice}</Toast>}
+      {users === null && !error && <Skeleton />}
       {users !== null && (
-        <table className="card">
+        <Card className="page"><h2>Cuentas registradas <span className="count">{users.length}</span></h2><Table label="Cuentas de usuario">
           <thead>
             <tr>
               <th>Nombre</th>
               <th>Correo</th>
               <th>Rol</th>
               <th>Estado</th>
-              <th />
+              <th>Acciones</th>
             </tr>
           </thead>
           <tbody>
@@ -160,22 +185,17 @@ export default function UsersPage() {
                 <td>{user.full_name}</td>
                 <td>{user.email}</td>
                 <td>{ROLE[user.role]}</td>
-                <td>{user.is_active ? 'Activo' : 'Desactivado'}</td>
+                <td><Badge tone={user.is_active ? 'benign' : 'neutral'}>{user.is_active ? 'Activo' : 'Desactivado'}</Badge></td>
                 <td>
                   {user.id === me?.id ? (
                     // La propia contraseña se cambia con la actual, en Mi cuenta.
                     <Link to="/cuenta">Cambiar mi contraseña</Link>
                   ) : (
                     <div className="actions">
-                      <button
-                        className="secondary"
-                        disabled={busy}
-                        onClick={() =>
-                          void run(() => api.updateUser(user.id, { is_active: !user.is_active }))
-                        }
-                      >
-                        {user.is_active ? 'Desactivar' : 'Reactivar'}
-                      </button>
+                      <Button variant="secondary" disabled={busy} onClick={() => {
+                        setError(null)
+                        setEditing(user)
+                      }}><Pencil size={16} aria-hidden="true" /> Editar</Button>
                       <button
                         className="secondary"
                         disabled={busy}
@@ -221,7 +241,7 @@ export default function UsersPage() {
               </tr>
             ))}
           </tbody>
-        </table>
+        </Table></Card>
       )}
     </div>
   )

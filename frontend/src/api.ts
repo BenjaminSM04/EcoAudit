@@ -22,6 +22,15 @@ export interface Roi {
 export type AnalysisStatus = 'pending' | 'running' | 'done' | 'failed'
 export type Decision = 'probably_benign' | 'indeterminate' | 'suspicious' | 'out_of_domain'
 
+export type Birads = '1' | '2' | '3' | '4A' | '4B' | '4C' | '5' | '6'
+export interface ReadingInput { birads: Birads; blinded: boolean; notes: string | null }
+export interface ClinicalReading extends ReadingInput {
+  id: number
+  analysis_id: number
+  reader_id: number
+  created_at: string
+}
+
 export interface Analysis {
   id: number
   image_id: number
@@ -41,6 +50,7 @@ export interface Analysis {
   attempts: number
   created_at: string
   finished_at: string | null
+  reading: ClinicalReading | null
 }
 
 export interface CaseImage {
@@ -143,6 +153,56 @@ export interface CohortDetail extends CohortSummary {
   error: string | null
 }
 
+export interface Latency { n: number; mean: number | null; p50: number | null; p95: number | null; max: number | null }
+interface Durations { processing: Latency; total: Latency }
+export interface Overview {
+  cases: number
+  images: number
+  analyses_by_status: Record<AnalysisStatus, number>
+  decisions: Record<Decision, number>
+  abstention_rate: number | null
+  shift_alert_rate: number | null
+  shift_monitored: number
+  analyses_by_day: { date: string; count: number }[]
+  latency_seconds: Durations
+  active_model: { name: string; version: string } | null
+  clinical_readings: number
+}
+export interface Performance { models: { model_version_id: number; name: string; version: string; latency_seconds: Durations }[] }
+export interface Concordance {
+  matrix: [[number, number], [number, number]]
+  agreement_percent: number | null
+  kappa: number | null
+  n: number
+  n_indeterminate: number
+  n_blinded: number
+  n_unblinded: number
+  birads: Record<Birads, number>
+}
+export type ConfidenceInterval = [number, number] | null
+export interface CohortComparisonItem {
+  cohort_id: number
+  model_version_id: number
+  auc: number
+  ci: ConfidenceInterval
+  brier: number
+  abstention_rate: number
+  shift_alert_rate: number
+  shift_monitored: number
+}
+export interface Comparison {
+  a: CohortComparisonItem
+  b: CohortComparisonItem
+  paired_auc_difference: { value: number; ci: ConfidenceInterval }
+}
+export interface AuditFilters { user_id?: number; action?: string; desde?: string; hasta?: string; limit?: number; offset?: number }
+export interface AuditEntry { id: number; user_id: number | null; action: string; entity: string; entity_id: number | null; detail: Record<string, unknown>; created_at: string }
+export interface AuditLog { total: number; limit: number; offset: number; items: AuditEntry[] }
+export interface DicomReceipt {
+  instancias: { case_id: number; image_id: number; patient_ref: string; qc_flags: string[] }[]
+  fallos: { indice: number; motivo: string }[]
+}
+
 export class ApiError extends Error {
   status: number
   constructor(status: number, message: string) {
@@ -185,7 +245,7 @@ async function errorMessage(response: Response): Promise<string> {
   return `Error ${response.status}`
 }
 
-async function send(path: string, init: RequestInit = {}): Promise<Response> {
+async function send(path: string, init: RequestInit = {}, acceptedStatus?: number): Promise<Response> {
   const headers = new Headers(init.headers)
   const token = getToken()
   if (token) headers.set('Authorization', `Bearer ${token}`)
@@ -195,7 +255,7 @@ async function send(path: string, init: RequestInit = {}): Promise<Response> {
   } catch {
     throw new ApiError(0, 'No se pudo conectar con el servidor.')
   }
-  if (!response.ok) {
+  if (!response.ok && response.status !== acceptedStatus) {
     if (response.status === 401 && token) {
       setToken(null)
       window.dispatchEvent(new Event('ecoaudit:logout'))
@@ -223,8 +283,8 @@ function body(method: string, data: unknown): RequestInit {
 }
 
 // Descarga un archivo autenticado (PDF, CSV…): el token no viaja en un <a href> directo.
-export async function downloadFile(path: string, fileName: string): Promise<void> {
-  const url = URL.createObjectURL(await api.blob(path))
+export async function downloadFile(path: string, fileName: string, init?: RequestInit): Promise<void> {
+  const url = URL.createObjectURL(await (await send(path, init)).blob())
   const link = document.createElement('a')
   link.href = url
   link.download = fileName
@@ -240,7 +300,45 @@ export const downloadCohortReport = (id: number) =>
 export const downloadCohortItems = (id: number) =>
   downloadFile(`/api/cohorts/${id}/items.csv`, `auditoria-${id}-items.csv`)
 
+function auditQuery(filters: AuditFilters) {
+  const params = new URLSearchParams()
+  for (const [key, value] of Object.entries(filters)) {
+    if (value !== undefined) params.set(key, String(value))
+  }
+  return params.toString()
+}
+
 export const api = {
+  overview: () => json<Overview>('/api/stats/overview'),
+  performance: () => json<Performance>('/api/stats/performance'),
+  concordance: () => json<Concordance>('/api/stats/concordance'),
+  getReading: (id: number) => json<ClinicalReading>(`/api/analyses/${id}/reading`),
+  createReading: (id: number, data: ReadingInput) =>
+    json<ClinicalReading>(`/api/analyses/${id}/reading`, body('POST', data)),
+  exportFhir: (id: number) => downloadFile(`/api/analyses/${id}/fhir`, `analisis-${id}.fhir.json`, {
+    headers: { Accept: 'application/fhir+json' },
+  }),
+  reanalyze: (id: number, model_version_id: number) =>
+    json<CohortDetail>(`/api/cohorts/${id}/reanalyze`, body('POST', { model_version_id })),
+  compare: (a: number, b: number) => json<Comparison>(`/api/cohorts/compare?a=${a}&b=${b}`),
+  auditLog: (filters: AuditFilters) => json<AuditLog>(`/api/audit-log?${auditQuery(filters)}`),
+  exportAuditLog: (filters: AuditFilters) => downloadFile(`/api/audit-log.csv?${auditQuery(filters)}`, 'bitacora.csv'),
+  async importDicom(files: File[]): Promise<DicomReceipt> {
+    const nonce = Array.from(crypto.getRandomValues(new Uint8Array(16)), byte => byte.toString(16).padStart(2, '0')).join('')
+    const boundary = `ecoaudit-${nonce}`
+    const parts: BlobPart[] = files.flatMap(file => [
+      `--${boundary}\r\nContent-Type: application/dicom\r\n\r\n`, file, '\r\n',
+    ])
+    const payload = files.length === 1 ? files[0] : new Blob([...parts, `--${boundary}--\r\n`])
+    const contentType = files.length === 1 ? 'application/dicom' : `multipart/related; type="application/dicom"; boundary="${boundary}"`
+    const response = await send('/api/dicomweb/studies', {
+      method: 'POST', headers: { 'Content-Type': contentType }, body: payload,
+    }, 400)
+    if (response.ok) return response.json() as Promise<DicomReceipt>
+    const result = await response.clone().json() as Partial<DicomReceipt>
+    if (Array.isArray(result.instancias) && Array.isArray(result.fallos)) return result as DicomReceipt
+    throw new ApiError(response.status, await errorMessage(response))
+  },
   suggest: (id: number) => json<{roi: Roi | null}>(`/api/images/${id}/roi`, { method: 'POST' }),
   async login(email: string, password: string): Promise<void> {
     const form = new URLSearchParams({ username: email, password })

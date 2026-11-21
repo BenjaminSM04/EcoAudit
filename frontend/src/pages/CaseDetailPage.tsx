@@ -4,7 +4,10 @@ import { Link, useParams } from 'react-router-dom'
 import { api } from '../api'
 import type { CaseDetail, ModelVersion } from '../api'
 import ImageWorkspace from '../components/ImageWorkspace'
+import { ImagePlus } from 'lucide-react'
 import { dateTime } from '../labels'
+import { useBlobUrl } from '../components/useBlobUrl'
+import { EmptyState, Skeleton } from '../components/ui'
 
 export default function CaseDetailPage() {
   const caseId = Number(useParams().caseId)
@@ -12,6 +15,7 @@ export default function CaseDetailPage() {
   const [models, setModels] = useState<ModelVersion[]>([])
   const [error, setError] = useState<string | null>(null)
   const [uploading, setUploading] = useState(false)
+  const [selected, setSelected] = useState<number | null>(null)
   const fileInput = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
@@ -33,7 +37,8 @@ export default function CaseDetailPage() {
     const failures: string[] = []
     for (const file of files) {
       try {
-        await api.uploadImage(caseId, file)
+        const image = await api.uploadImage(caseId, file)
+        setSelected(image.id)
       } catch (err) {
         failures.push(`${file.name}: ${err instanceof Error ? err.message : 'error'}`)
       }
@@ -52,7 +57,7 @@ export default function CaseDetailPage() {
     return (
       <div className="page">
         <Link to="/casos">← Casos</Link>
-        {error ? <p className="error">{error}</p> : <p className="muted">Cargando…</p>}
+        {error ? <p className="error" role="alert">{error}</p> : <Skeleton />}
       </div>
     )
   }
@@ -71,7 +76,7 @@ export default function CaseDetailPage() {
       </p>
 
       {models.length > 0 && !activeModel && (
-        <p className="error">No hay un modelo activo; un administrador debe activar uno.</p>
+        <p className="error" role="alert">No hay un modelo activo; un administrador debe activar uno.</p>
       )}
       {activeModel?.card.demo && (
         <p className="banner">
@@ -81,6 +86,7 @@ export default function CaseDetailPage() {
       )}
 
       <div className="card upload">
+        <label htmlFor="upload"><ImagePlus size={20} aria-hidden="true" /> Imágenes</label>
         <input
           ref={fileInput}
           type="file"
@@ -89,19 +95,33 @@ export default function CaseDetailPage() {
           onChange={upload}
           disabled={uploading}
           id="upload"
+          aria-describedby="upload-help"
         />
-        <label htmlFor="upload" className="muted small">
+        <p id="upload-help" className="muted small" role={uploading ? 'status' : undefined}>
           {uploading
             ? 'Subiendo…'
             : 'PNG, JPEG, BMP, TIFF o DICOM sin compresión. Se guardan solo los píxeles: los metadatos se descartan. El texto quemado en la imagen no se elimina.'}
-        </label>
+        </p>
       </div>
-      {error && <p className="error">{error}</p>}
+      {error && <p className="error" role="alert">{error}</p>}
 
-      {detail.images.length === 0 && <p className="muted">Este caso aún no tiene imágenes.</p>}
-      {detail.images.map((image) => (
-        <ImageWorkspace key={image.id} image={image} models={models} />
-      ))}
+      {detail.images.length === 0 && <EmptyState>Este caso aún no tiene imágenes.</EmptyState>}
+      {detail.images.length > 0 && <section aria-label="Galería de ecografías" className="card page">
+        <h2>Ecografías <span className="count">{detail.images.length}</span></h2>
+        <div className="thumbnails">{detail.images.map(image => <Thumbnail key={image.id}
+          id={image.id} active={image.id === (selected ?? detail.images[0]?.id)} onSelect={() => setSelected(image.id)} />)}</div>
+      </section>}
+      {detail.images.map(image => <div key={image.id} hidden={image.id !== (selected ?? detail.images[0]?.id)}>
+        <ImageWorkspace image={image} models={models} />
+      </div>)}
     </div>
   )
+}
+
+function Thumbnail({ id, active, onSelect }: { id: number; active: boolean; onSelect: () => void }) {
+  const url = useBlobUrl(`/api/images/${id}/file`)
+  return <button type="button" className="thumbnail" aria-pressed={active} onClick={onSelect}>
+    {url ? <img src={url} alt="" /> : <span className="thumbnail-placeholder" aria-hidden="true" />}
+    <span>Imagen #{id}</span>
+  </button>
 }

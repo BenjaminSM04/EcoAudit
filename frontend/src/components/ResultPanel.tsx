@@ -1,5 +1,7 @@
 import type { Analysis, ModelVersion } from '../api'
 import { DECISION, dateTime, percent, warningText } from '../labels'
+import { Badge } from './ui'
+import { Gauge } from './ui/Gauge'
 
 interface Props {
   analysis: Analysis
@@ -9,14 +11,14 @@ interface Props {
 export default function ResultPanel({ analysis, model }: Props) {
   if (analysis.status === 'pending' || analysis.status === 'running') {
     return (
-      <p className="muted">
+      <p className="muted" role="status">
         {analysis.status === 'pending' ? 'En cola…' : 'Procesando…'} (análisis #{analysis.id})
       </p>
     )
   }
   if (analysis.status === 'failed') {
     return (
-      <div className="result tone-warning">
+      <div className="result tone-warning" role="alert">
         <h3>El análisis falló</h3>
         <p className="small">{analysis.error}</p>
         {analysis.attempts > 1 && <p className="small">Intentos: {analysis.attempts}.</p>}
@@ -26,35 +28,13 @@ export default function ResultPanel({ analysis, model }: Props) {
 
   const decision = analysis.decision ? DECISION[analysis.decision] : null
   const band = model?.card.decision
-  const probability = analysis.probability ?? 0
+
 
   return (
     <div className={`result tone-${decision?.tone ?? 'neutral'}`}>
-      <h3>{decision?.title ?? 'Sin decisión'}</h3>
+      <h3><Badge tone={decision?.tone}>{decision?.title ?? 'Sin decisión'}</Badge></h3>
       <p className="small">{decision?.detail}</p>
-
-      <div className={analysis.decision === 'out_of_domain' ? 'prob unreliable' : 'prob'}>
-        <span className="prob-value">{percent(analysis.probability)}</span>
-        <span className="muted small">probabilidad calibrada de malignidad</span>
-      </div>
-      <div className="bar" aria-hidden="true">
-        {band && (
-          <div
-            className="band"
-            style={{
-              left: `${band.abstain_low * 100}%`,
-              width: `${(band.abstain_high - band.abstain_low) * 100}%`,
-            }}
-            title="Zona de abstención"
-          />
-        )}
-        <div className="marker" style={{ left: `${probability * 100}%` }} />
-      </div>
-      {band && (
-        <p className="muted small">
-          Zona de abstención experimental: {percent(band.abstain_low)} a {percent(band.abstain_high)}.
-        </p>
-      )}
+      <Gauge value={analysis.probability} band={band} unreliable={analysis.decision === 'out_of_domain'} />
 
       <dl>
         <dt>Sin calibrar</dt>
@@ -73,6 +53,7 @@ export default function ResultPanel({ analysis, model }: Props) {
         <dd>{analysis.roi ? 'ROI marcado' : 'imagen completa'}</dd>
         <dt>Modelo</dt>
         <dd>{model ? `${model.name} ${model.version}` : `#${analysis.model_version_id}`}</dd>
+        {model && <><dt>Paquete del modelo</dt><dd><code title={model.bundle_sha256}>{model.bundle_sha256.slice(0, 16)}…</code></dd></>}
         <dt>Fecha</dt>
         <dd>{analysis.finished_at ? dateTime(analysis.finished_at) : '—'}</dd>
         {analysis.attempts > 1 && (

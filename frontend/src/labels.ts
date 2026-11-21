@@ -1,6 +1,6 @@
 // Textos que ve el usuario para los códigos que devuelve el backend.
 
-import type { CohortProgress, CohortSource, CohortStatus, Decision, Role } from './api'
+import type { AnalysisStatus, Birads, CohortProgress, CohortSource, CohortStatus, Decision, Role } from './api'
 
 export const DECISION: Record<Decision, { title: string; detail: string; tone: string }> = {
   probably_benign: {
@@ -50,6 +50,31 @@ export const COHORT_SOURCE: Record<CohortSource, string> = {
   batch: 'Lote nuevo',
 }
 
+export const ANALYSIS_STATUS: Record<AnalysisStatus, string> = {
+  pending: 'En cola', running: 'Procesando', done: 'Terminado', failed: 'Fallido',
+}
+
+export const BIRADS: Record<Birads, string> = {
+  '1': 'Negativo', '2': 'Hallazgo benigno', '3': 'Probablemente benigno',
+  '4A': 'Sospecha baja', '4B': 'Sospecha moderada', '4C': 'Sospecha alta',
+  '5': 'Altamente sugestivo de malignidad', '6': 'Malignidad confirmada por biopsia',
+}
+
+// Orden clínico explícito: Object.entries pondría primero las claves numéricas (1, 2, 3, 5, 6, 4A…).
+export const BIRADS_ORDER: Birads[] = ['1', '2', '3', '4A', '4B', '4C', '5', '6']
+
+export const AUDIT_ACTION: Record<string, string> = {
+  login: 'Inicio de sesión', login_failed: 'Ingreso fallido', login_blocked: 'Ingreso bloqueado',
+  password_changed: 'Contraseña cambiada', password_reset: 'Contraseña restablecida',
+  user_created: 'Usuario creado', user_updated: 'Usuario actualizado',
+  case_created: 'Caso creado', image_uploaded: 'Imagen cargada',
+  analysis_requested: 'Análisis solicitado', clinical_reading_created: 'Lectura clínica registrada',
+  analysis_fhir_exported: 'Resultado exportado a FHIR', audit_log_exported: 'Bitácora exportada',
+  model_registered: 'Modelo registrado', model_activated: 'Modelo activado',
+  cohort_created: 'Cohorte creada', cohort_reanalyzed: 'Reanálisis de cohorte solicitado',
+  roi_suggested: 'ROI sugerido',
+}
+
 export const WARNING: Record<string, string> = {
   demo_model: 'Modelo de demostración sin entrenamiento: este resultado no significa nada.',
   out_of_domain: 'Imagen fuera del dominio de entrenamiento.',
@@ -77,12 +102,12 @@ export function warningText(code: string): string {
 }
 
 export function percent(value: number | null, digits = 0): string {
-  return value === null ? '—' : `${(value * 100).toFixed(digits)} %`
+  return value === null ? '—' : `${(value * 100).toLocaleString('es-BO', { minimumFractionDigits: digits, maximumFractionDigits: digits })} %`
 }
 
 // Número con tres decimales (AUROC, Brier, ECE…); '—' si no es finito.
-export function decimal(value: number): string {
-  return Number.isFinite(value)
+export function decimal(value: number | null): string {
+  return value !== null && Number.isFinite(value)
     ? value.toLocaleString('es-BO', { minimumFractionDigits: 3, maximumFractionDigits: 3 })
     : '—'
 }

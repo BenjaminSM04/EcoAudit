@@ -54,17 +54,17 @@ test.describe('Auditoría por lote (investigador)', () => {
     await expect(page).toHaveURL(/\/auditoria\/\d+$/)
     const cohortId = page.url().split('/').pop()!
     await expect(page.getByRole('heading', { name, level: 1 })).toBeVisible()
-    await expect(page.getByText(/· Terminada$/)).toBeVisible({ timeout: 90_000 })
+    await expect(page.getByText('Terminada', { exact: true })).toBeVisible({ timeout: 90_000 })
 
     // Resultados: AUROC, Brier y ECE con tres decimales.
     await expect(page.getByText('4 imágenes · 4 pacientes · 2 positivos')).toBeVisible()
     for (const metric of ['AUROC', 'Brier', 'ECE']) {
-      const tile = page.locator('.metrics > div').filter({ hasText: metric })
+      const tile = page.locator('.cohort-stats .stat-card').filter({ hasText: metric })
       await expect(tile).toBeVisible()
       await expect(tile.locator('strong')).toHaveText(/^\d+[.,]\d{3}$/)
     }
     // Con dos pacientes por clase hay intervalo de confianza para el AUROC.
-    await expect(page.getByText(/^IC del 95 % para AUROC · \d+[.,]\d{3} – \d+[.,]\d{3}$/)).toBeVisible()
+    await expect(page.getByText(/^IC del 95 % · \d+[.,]\d{3} a \d+[.,]\d{3}$/)).toBeVisible()
     await expect(
       page.getByText('Modelo de demostración: sin entrenamiento, estas cifras no significan nada.'),
     ).toBeVisible()

@@ -8,9 +8,11 @@ const DEMO_WARNING = 'Modelo de demostración sin entrenamiento: este resultado 
 
 // Crea un caso por la interfaz y deja la página dentro de su detalle.
 async function createCase(page: Page, patientRef: string): Promise<number> {
+  await page.getByRole('navigation').getByRole('link', { name: 'Casos', exact: true }).click()
+  await page.getByRole('button', { name: 'Nuevo caso' }).click()
   await page.getByLabel('Seudónimo del paciente').fill(patientRef)
   await page.getByLabel('Notas (opcional)').fill('Caso creado por la prueba e2e')
-  await page.getByRole('button', { name: 'Nuevo caso' }).click()
+  await page.getByRole('button', { name: 'Crear caso' }).click()
   await expect(page).toHaveURL(/\/casos\/\d+$/)
   const caseId = Number(page.url().split('/').pop())
   await expect(page.getByRole('heading', { level: 1 })).toHaveText(`Caso #${caseId} · ${patientRef}`)
@@ -41,7 +43,8 @@ test('médico: caso, imagen, ROI, análisis, mapa de activación y PDF', async (
     .toBe(192)
 
   // --- Dibujar un ROI arrastrando sobre el visor ---
-  const frame = page.locator('.frame')
+  const frame = page.locator('.frame:visible')
+  await frame.scrollIntoViewIfNeeded()
   const box = await frame.boundingBox()
   expect(box).not.toBeNull()
   const { x, y, width, height } = box!
@@ -73,6 +76,7 @@ test('médico: caso, imagen, ROI, análisis, mapa de activación y PDF', async (
   expect(sent.roi.w).toBeCloseTo(192 * 0.45, -1)
   expect(sent.roi.h).toBeCloseTo(192 * 0.45, -1)
 
+  await page.getByRole('button', { name: 'Ver resultado sin registrar lectura' }).click({ timeout: 60_000 })
   const result = page.locator('.result')
   await expect(result).toBeVisible({ timeout: 60_000 })
   await expect(result.getByRole('heading', { level: 3 })).toHaveText(DECISIONS)
@@ -125,6 +129,7 @@ test('médico: caso, imagen, ROI, análisis, mapa de activación y PDF', async (
   await expect(page.locator('.result')).toHaveCount(0)
   await expect(page.locator('img.cam')).toHaveCount(0)
   await page.getByRole('button', { name: 'Analizar la imagen completa' }).click()
+  await page.getByRole('button', { name: 'Ver resultado sin registrar lectura' }).click({ timeout: 60_000 })
   await expect(page.locator('.result')).toContainText('imagen completa', { timeout: 60_000 })
   await expect(page.locator('.result').getByRole('heading', { level: 3 })).toHaveText(DECISIONS)
   await expect(page.getByText('La región seleccionada cambió.')).toHaveCount(0)
@@ -154,9 +159,11 @@ test('médico: el control de calidad marca duplicados y baja resolución', async
   await expect(page.getByRole('img', { name: /^Ecografía \d+$/ })).toHaveCount(1)
   // La misma imagen otra vez, y una de 64 px (por debajo del mínimo de 128 px).
   await uploads.setInputFiles({ name: 'copia.png', mimeType: 'image/png', buffer: noisePng(7) })
-  await expect(page.getByRole('img', { name: /^Ecografía \d+$/ })).toHaveCount(2)
+  await expect(page.getByRole('region', { name: 'Galería de ecografías' }).getByRole('button')).toHaveCount(2)
+  await expect(page.getByText('Imagen idéntica a otra del mismo caso.')).toBeVisible()
   await uploads.setInputFiles({ name: 'chica.png', mimeType: 'image/png', buffer: noisePng(8, 64) })
-  await expect(page.getByRole('img', { name: /^Ecografía \d+$/ })).toHaveCount(3)
+  await expect(page.getByRole('region', { name: 'Galería de ecografías' }).getByRole('button')).toHaveCount(3)
+  await expect(page.getByText('Imagen de baja resolución.')).toBeVisible()
 
   await expect(page.getByText('Imagen idéntica a otra del mismo caso.')).toHaveCount(1)
   await expect(page.getByText('Imagen de baja resolución.')).toHaveCount(1)

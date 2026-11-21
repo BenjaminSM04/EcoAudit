@@ -3,6 +3,7 @@
 La interfaz (claves tipo ``images/12/ab.png``) es la de un almacén de objetos, de modo que
 cambiar a MinIO/S3 solo exige reimplementar esta clase.
 """
+
 from __future__ import annotations
 
 import shutil

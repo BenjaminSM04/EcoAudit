@@ -1,4 +1,5 @@
 """Motor y sesiones de SQLAlchemy."""
+
 from __future__ import annotations
 
 from collections.abc import Iterator

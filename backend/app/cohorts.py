@@ -2,6 +2,7 @@
 
 Sin dependencias de HTTP: lo usan el router (``routers/cohorts.py``) y el worker.
 """
+
 from __future__ import annotations
 
 from collections import Counter
@@ -32,14 +33,18 @@ def auc(positive, negative):
     return float(np.mean((below + through) / (2 * len(negative))))
 
 
-def summarize(groups):
+def _patient_scores(groups):
     labels, scores = [], []
     for label, probabilities in groups.values():
         p = np.clip(probabilities, 1e-15, 1 - 1e-15)
         logit = np.mean(np.log(p) - np.log1p(-p))
         labels.append(label)
         scores.append(1 / (1 + np.exp(-logit)))
-    y, p = np.array(labels), np.array(scores)
+    return np.array(labels), np.array(scores)
+
+
+def summarize(groups):
+    y, p = _patient_scores(groups)
     pos, neg = np.sort(p[y == 1]), np.sort(p[y == 0])
     if not len(pos) or not len(neg):
         raise ValueError("Se necesita al menos un paciente de cada clase.")
@@ -82,15 +87,35 @@ class Entry:
     decision: str | None
 
 
-def build_results(model: ModelVersion, csv_hash: str, entries: list[Entry]) -> dict:
-    """Métricas de la cohorte: ``summarize`` por paciente más imágenes, abstenciones y decisiones.
-
-    Lanza ``ValueError`` si no hay al menos un paciente de cada clase.
-    """
+def _group_entries(entries: list[Entry]) -> dict[str, tuple[int, list[float]]]:
     groups: dict[str, tuple[int, list[float]]] = {}
     for entry in entries:
         groups.setdefault(entry.patient_ref, (entry.label, []))[1].append(entry.probability)
-    result = summarize(groups)
+    return groups
+
+
+def paired_auc_difference(entries_a: list[Entry], entries_b: list[Entry]) -> dict:
+    """Diferencia B − A con el mismo remuestreo de pacientes para ambos modelos."""
+    groups_a, groups_b = _group_entries(entries_a), _group_entries(entries_b)
+    patients = sorted(groups_a)
+    labels, a = _patient_scores({patient: groups_a[patient] for patient in patients})
+    _, b = _patient_scores({patient: groups_b[patient] for patient in patients})
+    pos, neg = np.flatnonzero(labels == 1), np.flatnonzero(labels == 0)
+    difference = auc(b[pos], b[neg]) - auc(a[pos], a[neg])
+    ci = None
+    if min(len(pos), len(neg)) >= 2:
+        rng = np.random.default_rng(42)
+        samples = []
+        for _ in range(1000):
+            p, n = rng.choice(pos, len(pos)), rng.choice(neg, len(neg))
+            samples.append(auc(b[p], b[n]) - auc(a[p], a[n]))
+        ci = np.quantile(samples, [0.025, 0.975]).tolist()
+    return {"value": difference, "ci": ci}
+
+
+def build_results(model: ModelVersion, csv_hash: str, entries: list[Entry]) -> dict:
+    """Métricas por paciente más imágenes, abstenciones y decisiones."""
+    result = summarize(_group_entries(entries))
     result.update(
         images=len(entries),
         abstentions=sum(e.decision in ABSTENTIONS for e in entries),

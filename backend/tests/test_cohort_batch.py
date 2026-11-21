@@ -1,4 +1,5 @@
 """Cohorte desde un lote nuevo de imágenes: ``POST /api/cohorts/batch``."""
+
 from __future__ import annotations
 
 import csv
@@ -42,7 +43,9 @@ def _manifest(rows=BATCH, header: str = "filename,patient_ref,label") -> bytes:
 
 def _files(rows=BATCH, manifest: bytes | None = None) -> list:
     files = [("manifest", ("manifest.csv", manifest or _manifest(rows), "text/csv"))]
-    files += [("images", (name, png_bytes(noise_pixels(seed)), "image/png")) for name, _, _, seed in rows]
+    files += [
+        ("images", (name, png_bytes(noise_pixels(seed)), "image/png")) for name, _, _, seed in rows
+    ]
     return files
 
 
@@ -87,14 +90,19 @@ def test_batch_end_to_end(client, db, investigador, active_model):
     # Un caso por paciente, del usuario; las imágenes ya cargadas y un análisis pendiente por imagen.
     cases = client.get("/api/cases", headers=investigador).json()
     assert sorted((c["patient_ref"], c["image_count"]) for c in cases) == [
-        ("P-A", 2), ("P-B", 1), ("P-C", 1), ("P-D", 1),
+        ("P-A", 2),
+        ("P-B", 1),
+        ("P-C", 1),
+        ("P-D", 1),
     ]
     analyses = list(db.scalars(select(Analysis).order_by(Analysis.id)))
     assert len(analyses) == 5 and {a.status.value for a in analyses} == {"pending"}
     assert all(a.model_version_id == active_model.id and a.roi is None for a in analyses)
 
     # Mientras hay análisis pendientes sigue procesando; no hay informe todavía.
-    assert client.get(f"/api/cohorts/{cohort['id']}/report", headers=investigador).status_code == 409
+    assert (
+        client.get(f"/api/cohorts/{cohort['id']}/report", headers=investigador).status_code == 409
+    )
     assert worker.process_next(db) is True
     partial = client.get(f"/api/cohorts/{cohort['id']}", headers=investigador).json()
     assert partial["status"] == "processing"
@@ -118,7 +126,9 @@ def test_batch_end_to_end(client, db, investigador, active_model):
     table = client.get(f"/api/cohorts/{cohort['id']}/items.csv", headers=investigador)
     rows = list(csv.reader(io.StringIO(table.text)))
     assert rows[0] == ["analysis_id", "patient_ref", "label", "probability", "decision", "status"]
-    assert [(r[1], r[2], r[5]) for r in rows[1:]] == [(p, str(label), "done") for _, p, label, _ in BATCH]
+    assert [(r[1], r[2], r[5]) for r in rows[1:]] == [
+        (p, str(label), "done") for _, p, label, _ in BATCH
+    ]
     assert [int(r[0]) for r in rows[1:]] == [a.id for a in analyses]
 
     listing = client.get("/api/cohorts", headers=investigador).json()
@@ -134,9 +144,7 @@ def test_batch_end_to_end(client, db, investigador, active_model):
 def test_batch_images_get_the_same_deidentification_and_quality_control(
     client, db, investigador, active_model
 ):
-    client.post(
-        "/api/cohorts/batch", headers=investigador, data={"name": "uno"}, files=_files()
-    )
+    client.post("/api/cohorts/batch", headers=investigador, data={"name": "uno"}, files=_files())
     # Mismo lote otra vez: las imágenes se repiten, pero de otros casos (no del mismo lote).
     again = _post_batch(client, investigador, name="dos")
     assert again.status_code == 201
@@ -148,7 +156,9 @@ def test_batch_images_get_the_same_deidentification_and_quality_control(
     assert stored.startswith(b"\x89PNG")
 
 
-def test_batch_with_failed_analysis_leaves_the_cohort_failed(client, db, investigador, active_model):
+def test_batch_with_failed_analysis_leaves_the_cohort_failed(
+    client, db, investigador, active_model
+):
     cohort = _post_batch(client, investigador).json()
     broken = db.scalars(select(Image).order_by(Image.id)).all()[2]
     get_storage().path(broken.storage_key).unlink()  # se pierde un archivo
@@ -158,7 +168,9 @@ def test_batch_with_failed_analysis_leaves_the_cohort_failed(client, db, investi
     assert detail["status"] == "failed" and detail["results"] is None
     assert detail["error"] == "1 análisis fallaron."
     assert detail["progress"] == {"total": 5, "done": 4, "failed": 1}
-    assert client.get(f"/api/cohorts/{cohort['id']}/report", headers=investigador).status_code == 409
+    assert (
+        client.get(f"/api/cohorts/{cohort['id']}/report", headers=investigador).status_code == 409
+    )
     table = client.get(f"/api/cohorts/{cohort['id']}/items.csv", headers=investigador)
     assert "failed" in table.text
 
@@ -268,7 +280,14 @@ def _invalid_cases():
             [
                 ("manifest", ("m.csv", _manifest(rows), "text/csv")),
                 *[
-                    ("images", (name, b"no soy una imagen" if name == "c1.png" else _png(seed), "image/png"))
+                    (
+                        "images",
+                        (
+                            name,
+                            b"no soy una imagen" if name == "c1.png" else _png(seed),
+                            "image/png",
+                        ),
+                    )
                     for name, _, _, seed in rows
                 ],
             ],
@@ -278,12 +297,19 @@ def _invalid_cases():
             _files(rows, manifest=b"filename,patient_ref,label\na1.png,P-A,1,extra\n"),
             "tres columnas",
         ),
-        "manifiesto vacío": (_files(rows, manifest=b"filename,patient_ref,label\n"), "no tiene filas"),
+        "manifiesto vacío": (
+            _files(rows, manifest=b"filename,patient_ref,label\n"),
+            "no tiene filas",
+        ),
         "manifiesto con más de 1000 imágenes": (
             [
                 (
                     "manifest",
-                    ("m.csv", _manifest([(f"{i}.png", f"P-{i % 2}", i % 2, i) for i in range(1001)]), "text/csv"),
+                    (
+                        "m.csv",
+                        _manifest([(f"{i}.png", f"P-{i % 2}", i % 2, i) for i in range(1001)]),
+                        "text/csv",
+                    ),
                 )
             ],
             "1000",
@@ -303,7 +329,10 @@ def test_invalid_batch_writes_nothing(client, db, investigador, active_model, ca
     assert expected in response.json()["detail"]
     assert _counts(db) == before == dict.fromkeys(before, 0)
     assert _stored_images() == before_files
-    assert db.scalar(select(func.count()).select_from(AuditLog).where(AuditLog.entity == "cohort")) == 0
+    assert (
+        db.scalar(select(func.count()).select_from(AuditLog).where(AuditLog.entity == "cohort"))
+        == 0
+    )
 
 
 def test_batch_requires_name_and_manifest(client, db, investigador, active_model):
@@ -354,13 +383,18 @@ def test_failure_while_writing_rolls_back_database_and_files(
     assert len(writes) == 3
     assert _counts(db) == dict.fromkeys(_counts(db), 0)
     assert _stored_images() == before_files
-    assert db.scalar(select(func.count()).select_from(AuditLog).where(AuditLog.entity == "cohort")) == 0
+    assert (
+        db.scalar(select(func.count()).select_from(AuditLog).where(AuditLog.entity == "cohort"))
+        == 0
+    )
 
 
 # ------------------------------------------------------------------ límite de 1000 imágenes
 def _tiny_batch(n: int) -> list:
     rows = [(f"i{i}.png", f"P-{i}", i % 2) for i in range(n)]
-    manifest = "filename,patient_ref,label\n" + "".join(f"{f},{p},{label}\n" for f, p, label in rows)
+    manifest = "filename,patient_ref,label\n" + "".join(
+        f"{f},{p},{label}\n" for f, p, label in rows
+    )
     files = [("manifest", ("m.csv", manifest.encode(), "text/csv"))]
     for i, (name, _, _) in enumerate(rows):
         pixels = np.random.default_rng(i).integers(0, 255, (16, 16), dtype=np.uint8)

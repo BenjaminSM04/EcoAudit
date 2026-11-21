@@ -1,4 +1,5 @@
 """Modo inline: al arrancar la API se procesan en segundo plano los análisis que quedaron pendientes."""
+
 from __future__ import annotations
 
 import threading

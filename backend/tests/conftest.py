@@ -18,7 +18,7 @@ os.environ["ECOAUDIT_INLINE_WORKER"] = "false"
 from fastapi.testclient import TestClient  # noqa: E402
 
 from app import worker  # noqa: E402
-from app.db import Base, get_engine, new_session  # noqa: E402
+from app.db import Base, get_engine, init_db, new_session  # noqa: E402
 from app.devtools import make_demo_bundle  # noqa: E402
 from app.main import app  # noqa: E402
 from app.models import Role, User  # noqa: E402
@@ -30,8 +30,11 @@ PASSWORD = "clave-de-prueba-123"
 
 @pytest.fixture(autouse=True)
 def clean_db():
-    Base.metadata.drop_all(get_engine())
-    Base.metadata.create_all(get_engine())
+    engine = get_engine()
+    with engine.begin() as connection:
+        Base.metadata.drop_all(connection)
+        connection.exec_driver_sql("DROP TABLE IF EXISTS alembic_version")
+    init_db(engine)
     worker._bundles.clear()
     yield
 

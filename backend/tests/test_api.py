@@ -46,7 +46,12 @@ def test_only_admin_manages_users_and_models(client, medico, admin, active_model
     created = client.post(
         "/api/users",
         headers=admin,
-        json={"email": "Nuevo@Test.bo", "full_name": "Nuevo", "password": "x" * 12, "role": "medico"},
+        json={
+            "email": "Nuevo@Test.bo",
+            "full_name": "Nuevo",
+            "password": "x" * 12,
+            "role": "medico",
+        },
     )
     assert created.status_code == 201 and created.json()["email"] == "nuevo@test.bo"
     duplicate = client.post(
@@ -82,7 +87,9 @@ def test_investigador_uses_cases_but_only_his_own(client, db, medico, admin):
     assert client.get(f"/api/images/{image_id}/file", headers=other).status_code == 404
     assert client.get("/api/analyses/1", headers=other).status_code == 404
     assert _upload(client, other, case_id).status_code == 404
-    assert client.post(f"/api/images/{image_id}/analyses", headers=other, json={}).status_code == 404
+    assert (
+        client.post(f"/api/images/{image_id}/analyses", headers=other, json={}).status_code == 404
+    )
     assert client.get(f"/api/cases/{case_id}", headers=admin).status_code == 200
 
 
@@ -182,9 +189,9 @@ def test_analysis_rejects_roi_outside_image(client, medico, active_model):
 def test_a_claimed_analysis_is_not_processed_twice(client, db, medico, active_model):
     case_id = _new_case(client, medico)
     image_id = _upload(client, medico, case_id).json()["id"]
-    analysis_id = client.post(
-        f"/api/images/{image_id}/analyses", headers=medico, json={}
-    ).json()["id"]
+    analysis_id = client.post(f"/api/images/{image_id}/analyses", headers=medico, json={}).json()[
+        "id"
+    ]
 
     assert worker.claim(db, analysis_id) is True
     assert worker.claim(db, analysis_id) is False

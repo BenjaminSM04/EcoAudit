@@ -6,26 +6,38 @@ from __future__ import annotations
 import hashlib
 
 from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, UploadFile, status
-from fastapi.responses import Response
+from fastapi.responses import JSONResponse, Response
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from ..config import get_settings
 from ..db import get_db
 from ..deps import record, require_roles
-from ..models import Analysis, AnalysisStatus, Case, Image, Role, User
+from ..fhir import analysis_bundle
+from ..models import Analysis, AnalysisStatus, Case, ClinicalReading, Image, Role, User
 from ..pipeline.imaging import ImageDecodeError
 from ..pipeline.localizer import propose
 from ..pipeline.runner import RoiError, resolve_roi
 from ..registry import get_active
 from ..reports import DECISION_LABELS, pdf
-from ..schemas import AnalysisCreate, AnalysisOut, CaseCreate, CaseOut, CaseSummary, ImageOut
+from ..schemas import (
+    AnalysisCreate,
+    AnalysisOut,
+    CaseCreate,
+    CaseOut,
+    CaseSummary,
+    ClinicalReadingCreate,
+    ClinicalReadingOut,
+    ImageOut,
+)
 from ..services import DuplicateFinder, prepare_image, store_image
 from ..storage import get_storage
 from ..worker import run_inline
 
 router = APIRouter(prefix="/api", tags=["cases"])
 _clinical = require_roles(Role.medico, Role.investigador, Role.admin)
+_reader = require_roles(Role.medico, Role.admin)
 _PNG_HEADERS = {"Cache-Control": "private, max-age=3600"}
 
 
@@ -55,16 +67,17 @@ def _analysis_or_404(db: Session, analysis_id: int, user: User) -> Analysis:
 
 
 # ---------------------------------------------------------------- salida
-def _analysis_out(analysis: Analysis) -> AnalysisOut:
+def _analysis_out(analysis: Analysis, reading: ClinicalReading | None = None) -> AnalysisOut:
     return AnalysisOut.model_validate(
         {
             **{c.name: getattr(analysis, c.name) for c in Analysis.__table__.columns},
             "has_cam": analysis.cam_key is not None,
+            "reading": reading,
         }
     )
 
 
-def _image_out(image: Image) -> ImageOut:
+def _image_out(image: Image, readings: dict[int, ClinicalReading] | None = None) -> ImageOut:
     return ImageOut(
         id=image.id,
         case_id=image.case_id,
@@ -74,17 +87,17 @@ def _image_out(image: Image) -> ImageOut:
         qc_flags=image.qc_flags,
         duplicate_of_id=image.duplicate_of_id,
         created_at=image.created_at,
-        analyses=[_analysis_out(a) for a in image.analyses],
+        analyses=[_analysis_out(a, (readings or {}).get(a.id)) for a in image.analyses],
     )
 
 
-def _case_out(case: Case) -> CaseOut:
+def _case_out(case: Case, readings: dict[int, ClinicalReading] | None = None) -> CaseOut:
     return CaseOut(
         id=case.id,
         patient_ref=case.patient_ref,
         notes=case.notes,
         created_at=case.created_at,
-        images=[_image_out(i) for i in case.images],
+        images=[_image_out(i, readings) for i in case.images],
     )
 
 
@@ -127,7 +140,14 @@ def create_case(
 def get_case(
     case_id: int, db: Session = Depends(get_db), user: User = Depends(_clinical)
 ) -> CaseOut:
-    return _case_out(_case_or_404(db, case_id, user))
+    case = _case_or_404(db, case_id, user)
+    readings = db.scalars(
+        select(ClinicalReading)
+        .join(Analysis, Analysis.id == ClinicalReading.analysis_id)
+        .join(Image, Image.id == Analysis.image_id)
+        .where(Image.case_id == case.id, ClinicalReading.reader_id == user.id)
+    )
+    return _case_out(case, {reading.analysis_id: reading for reading in readings})
 
 
 # ---------------------------------------------------------------- imágenes
@@ -208,7 +228,75 @@ def request_analysis(
 def get_analysis(
     analysis_id: int, db: Session = Depends(get_db), user: User = Depends(_clinical)
 ) -> AnalysisOut:
-    return _analysis_out(_analysis_or_404(db, analysis_id, user))
+    analysis = _analysis_or_404(db, analysis_id, user)
+    return _analysis_out(analysis, _own_reading(db, analysis.id, user.id))
+
+
+def _own_reading(db: Session, analysis_id: int, user_id: int) -> ClinicalReading | None:
+    return db.scalar(
+        select(ClinicalReading).where(
+            ClinicalReading.analysis_id == analysis_id, ClinicalReading.reader_id == user_id
+        )
+    )
+
+
+@router.post(
+    "/analyses/{analysis_id}/reading",
+    response_model=ClinicalReadingOut,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_reading(
+    analysis_id: int,
+    body: ClinicalReadingCreate,
+    db: Session = Depends(get_db),
+    user: User = Depends(_reader),
+) -> ClinicalReading:
+    _analysis_or_404(db, analysis_id, user)
+    reader_id = user.id
+    reading = ClinicalReading(analysis_id=analysis_id, reader_id=reader_id, **body.model_dump())
+    db.add(reading)
+    try:
+        record(db, user, "clinical_reading_created", "analysis", analysis_id)
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        if _own_reading(db, analysis_id, reader_id) is not None:
+            raise HTTPException(409, "Ya registró una lectura para este análisis.") from exc
+        raise
+    return reading
+
+
+@router.get("/analyses/{analysis_id}/reading", response_model=ClinicalReadingOut)
+def get_reading(
+    analysis_id: int, db: Session = Depends(get_db), user: User = Depends(_clinical)
+) -> ClinicalReading:
+    _analysis_or_404(db, analysis_id, user)
+    reading = _own_reading(db, analysis_id, user.id)
+    if reading is None:
+        raise HTTPException(404, "Lectura clínica no encontrada.")
+    return reading
+
+
+@router.get(
+    "/analyses/{analysis_id}/fhir",
+    response_class=Response,
+    responses={200: {"content": {"application/fhir+json": {}}}},
+)
+def export_fhir(
+    analysis_id: int, db: Session = Depends(get_db), user: User = Depends(_clinical)
+) -> Response:
+    analysis = _analysis_or_404(db, analysis_id, user)
+    if analysis.status != AnalysisStatus.done:
+        raise HTTPException(409, "El análisis aún no tiene un resultado.")
+    query = select(ClinicalReading).where(ClinicalReading.analysis_id == analysis_id)
+    if user.role != Role.admin:
+        query = query.where(ClinicalReading.reader_id == user.id)
+    bundle = analysis_bundle(analysis, db.scalars(query.order_by(ClinicalReading.id)))
+    record(db, user, "analysis_fhir_exported", "analysis", analysis_id)
+    db.commit()
+    return JSONResponse(
+        bundle, media_type="application/fhir+json", headers={"Cache-Control": "no-store"}
+    )
 
 
 @router.get("/analyses/{analysis_id}/cam")
@@ -231,8 +319,15 @@ def suggest_roi(image_id: int, db: Session = Depends(get_db), user: User = Depen
     if not path.is_file():
         raise HTTPException(503, "El localizador experimental no está instalado.")
     roi = propose(storage.get_bytes(image.storage_key), path)
-    record(db, user, "roi_suggested", "image", image.id, roi=roi,
-           localizer_sha256=hashlib.sha256(path.read_bytes()).hexdigest())
+    record(
+        db,
+        user,
+        "roi_suggested",
+        "image",
+        image.id,
+        roi=roi,
+        localizer_sha256=hashlib.sha256(path.read_bytes()).hexdigest(),
+    )
     db.commit()
     return {"roi": roi}
 

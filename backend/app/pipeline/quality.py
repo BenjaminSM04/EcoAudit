@@ -3,6 +3,7 @@
 El hallazgo que motiva este módulo: en BUSI, las imágenes duplicadas o casi duplicadas producen
 fuga de datos e inflan las métricas. El sistema marca el duplicado en el momento de la carga.
 """
+
 from __future__ import annotations
 
 import numpy as np

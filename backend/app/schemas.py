@@ -1,7 +1,9 @@
 """Esquemas de entrada y salida de la API."""
+
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
@@ -57,6 +59,22 @@ class AnalysisCreate(BaseModel):
     roi: Roi | None = None
 
 
+Birads = Literal["1", "2", "3", "4A", "4B", "4C", "5", "6"]
+
+
+class ClinicalReadingCreate(BaseModel):
+    birads: Birads
+    blinded: bool = Field(strict=True)
+    notes: str | None = Field(default=None, max_length=2000)
+
+
+class ClinicalReadingOut(_Out, ClinicalReadingCreate):
+    id: int
+    analysis_id: int
+    reader_id: int
+    created_at: datetime
+
+
 class AnalysisOut(_Out):
     id: int
     image_id: int
@@ -75,6 +93,7 @@ class AnalysisOut(_Out):
     error: str | None
     created_at: datetime
     finished_at: datetime | None
+    reading: ClinicalReadingOut | None = None
 
 
 class ImageOut(_Out):
@@ -128,6 +147,10 @@ class CohortProgress(BaseModel):
     total: int
     done: int
     failed: int
+
+
+class CohortReanalyze(BaseModel):
+    model_version_id: int = Field(gt=0)
 
 
 class CohortSummary(_Out):

@@ -4,6 +4,7 @@ La comparten la carga individual (``routers/cases.py``) y los lotes de cohorte
 (``routers/cohorts.py``). Está separada en dos pasos para que un lote pueda validar todas sus
 imágenes antes de escribir nada: ``prepare_image`` solo lee y calcula; ``store_image`` escribe.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -128,9 +129,7 @@ class DuplicateFinder:
             del self._recent[RECENT_IMAGES_LIMIT:]
 
 
-def store_image(
-    db: Session, case: Case, prepared: PreparedImage, finder: DuplicateFinder
-) -> Image:
+def store_image(db: Session, case: Case, prepared: PreparedImage, finder: DuplicateFinder) -> Image:
     """Crea la fila de la imagen, marca duplicados y escribe el PNG en el almacén.
 
     No hace commit ni registra en la bitácora: eso lo decide quien llama. Si la escritura en el

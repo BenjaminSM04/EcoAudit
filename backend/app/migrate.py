@@ -23,13 +23,11 @@ cambie en los modelos se hace con migraciones nuevas, nunca más con ``create_al
 
 Límites a tener presentes:
 
-* La adopción compara contra ``Base.metadata`` (el esquema actual) pero sella ``0001``. Eso solo
-  es coherente mientras ``0001`` sea la última migración. Al agregar la ``0002``, hay que congelar
-  este mecanismo (comparar contra el esquema de ``0001``, o retirarlo si ya no quedan bases sin
-  sellar); si no, una base vieja recibiría dos veces los cambios de la ``0002``.
+* La adopción sella ``0001`` y excluye los cambios posteriores del esquema de los modelos.
 * Solo se detectan tablas y columnas ausentes. No corrige tipos, índices, claves foráneas ni
   columnas que sobran en una tabla existente.
 """
+
 from __future__ import annotations
 
 import logging
@@ -52,6 +50,7 @@ log = logging.getLogger("ecoaudit.db")
 # de trabajo.
 ALEMBIC_INI = Path(__file__).resolve().parent.parent / "alembic.ini"
 ADOPTION_REVISION = "0001"
+_TABLES_AFTER_ADOPTION = {"clinical_readings"}
 
 # Clave del bloqueo consultivo de PostgreSQL: la API y el worker arrancan a la vez y no deben
 # migrar al mismo tiempo.
@@ -93,6 +92,8 @@ def _plan_adoption(connection: Connection) -> tuple[list[Table], list[tuple[Tabl
     blocked: list[str] = []
 
     for table in Base.metadata.sorted_tables:
+        if table.name in _TABLES_AFTER_ADOPTION:
+            continue
         if table.name not in existing:
             missing_tables.append(table)
             continue
@@ -126,9 +127,7 @@ def _add_column(connection: Connection, table: Table, column: Column) -> None:
     ddl = f"ALTER TABLE {preparer.format_table(table)} ADD COLUMN {definition}"
     for foreign_key in column.foreign_keys:
         target = foreign_key.column
-        ddl += (
-            f" REFERENCES {preparer.format_table(target.table)} ({preparer.quote(target.name)})"
-        )
+        ddl += f" REFERENCES {preparer.format_table(target.table)} ({preparer.quote(target.name)})"
     connection.execute(text(ddl))
 
 

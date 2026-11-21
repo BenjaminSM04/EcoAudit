@@ -3,12 +3,24 @@
 Regla de privacidad: no se guarda ningún dato identificable del paciente. ``Case.patient_ref``
 es un seudónimo que asigna el usuario; las imágenes se almacenan re-codificadas, sin metadatos.
 """
+
 from __future__ import annotations
 
 import enum
 from datetime import UTC, datetime
 
-from sqlalchemy import JSON, Boolean, DateTime, Enum, Float, ForeignKey, Integer, String, Text
+from sqlalchemy import (
+    JSON,
+    Boolean,
+    DateTime,
+    Enum,
+    Float,
+    ForeignKey,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.types import TypeDecorator
 
@@ -132,7 +144,8 @@ class Analysis(Base):
     requested_by_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
     model_version_id: Mapped[int] = mapped_column(ForeignKey("model_versions.id"))
     status: Mapped[AnalysisStatus] = mapped_column(
-        Enum(AnalysisStatus, native_enum=False, length=20), default=AnalysisStatus.pending,
+        Enum(AnalysisStatus, native_enum=False, length=20),
+        default=AnalysisStatus.pending,
         index=True,
     )
     roi: Mapped[dict | None] = mapped_column(JSON, nullable=True)  # {x, y, w, h} en píxeles
@@ -157,6 +170,23 @@ class Analysis(Base):
     model_version: Mapped[ModelVersion] = relationship()
 
 
+class ClinicalReading(Base):
+    """Lectura independiente de un análisis, una por lector."""
+
+    __tablename__ = "clinical_readings"
+    __table_args__ = (
+        UniqueConstraint("analysis_id", "reader_id", name="uq_reading_analysis_reader"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    analysis_id: Mapped[int] = mapped_column(ForeignKey("analyses.id", ondelete="CASCADE"))
+    reader_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    birads: Mapped[str] = mapped_column(String(2))
+    blinded: Mapped[bool] = mapped_column(Boolean)
+    notes: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(UtcDateTime, default=utcnow)
+
+
 class Cohort(Base):
     """Cohorte de auditoría: un conjunto de análisis con etiqueta y las métricas que resultan.
 
@@ -170,7 +200,8 @@ class Cohort(Base):
     name: Mapped[str] = mapped_column(String(120))
     source: Mapped[CohortSource] = mapped_column(Enum(CohortSource, native_enum=False, length=16))
     status: Mapped[CohortStatus] = mapped_column(
-        Enum(CohortStatus, native_enum=False, length=16), default=CohortStatus.processing,
+        Enum(CohortStatus, native_enum=False, length=16),
+        default=CohortStatus.processing,
         index=True,
     )
     owner_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)

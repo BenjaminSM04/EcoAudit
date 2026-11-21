@@ -1,4 +1,5 @@
 """Duplicados entre casos del mismo usuario al cargar imágenes."""
+
 from __future__ import annotations
 
 import numpy as np
@@ -108,7 +109,9 @@ def test_near_search_is_limited_to_the_most_recent_images(client, medico, monkey
     pixels = noise_pixels(4)
     original = _upload_pixels(client, medico, case_a, pixels)
     _upload_pixels(client, medico, case_a, noise_pixels(5))
-    _upload_pixels(client, medico, case_a, noise_pixels(6))  # el original queda fuera de las 2 más recientes
+    _upload_pixels(
+        client, medico, case_a, noise_pixels(6)
+    )  # el original queda fuera de las 2 más recientes
 
     near = _upload_pixels(client, medico, case_b, _slightly_different(pixels))
     assert near["qc_flags"] == [] and near["duplicate_of_id"] is None

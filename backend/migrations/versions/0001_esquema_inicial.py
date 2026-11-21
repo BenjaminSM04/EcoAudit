@@ -7,6 +7,7 @@ cambiar cuando cambien los modelos. Los cambios posteriores van en migraciones n
 Revisión: 0001
 Anterior: (ninguna)
 """
+
 from __future__ import annotations
 
 import sqlalchemy as sa
@@ -98,8 +99,13 @@ def upgrade() -> None:
         sa.Column(
             "status",
             sa.Enum(
-                "pending", "running", "done", "failed",
-                name="analysisstatus", native_enum=False, length=20,
+                "pending",
+                "running",
+                "done",
+                "failed",
+                name="analysisstatus",
+                native_enum=False,
+                length=20,
             ),
             nullable=False,
         ),
@@ -138,8 +144,12 @@ def upgrade() -> None:
         sa.Column(
             "status",
             sa.Enum(
-                "processing", "done", "failed",
-                name="cohortstatus", native_enum=False, length=16,
+                "processing",
+                "done",
+                "failed",
+                name="cohortstatus",
+                native_enum=False,
+                length=16,
             ),
             nullable=False,
         ),
@@ -189,7 +199,13 @@ def upgrade() -> None:
 def downgrade() -> None:
     # Orden inverso al de creación, por las claves foráneas.
     for tabla in (
-        "audit_log", "cohort_items", "cohorts", "analyses", "images", "cases",
-        "model_versions", "users",
+        "audit_log",
+        "cohort_items",
+        "cohorts",
+        "analyses",
+        "images",
+        "cases",
+        "model_versions",
+        "users",
     ):
         op.drop_table(tabla)  # los índices caen junto con su tabla

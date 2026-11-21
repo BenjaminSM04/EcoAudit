@@ -4,6 +4,7 @@ No es un modelo entrenado: una convolución con pesos aleatorios.
 La ficha lleva ``"demo": true`` y el sistema lo advierte en cada resultado. Requiere el paquete
 ``onnx`` (dependencia de desarrollo).
 """
+
 from __future__ import annotations
 
 import json
@@ -26,8 +27,11 @@ def _write_member(path: Path, rng: np.random.Generator, size: int, channels: int
 
     nodes = [
         helper.make_node(
-            "Conv", ["image", "conv_w", "conv_b"], ["conv"],
-            kernel_shape=[kernel, kernel], strides=[kernel, kernel],
+            "Conv",
+            ["image", "conv_w", "conv_b"],
+            ["conv"],
+            kernel_shape=[kernel, kernel],
+            strides=[kernel, kernel],
         ),
         helper.make_node("Relu", ["conv"], ["features"]),
         helper.make_node("GlobalAveragePool", ["features"], ["pooled"]),
@@ -41,7 +45,9 @@ def _write_member(path: Path, rng: np.random.Generator, size: int, channels: int
         [helper.make_tensor_value_info("image", TensorProto.FLOAT, ["n", 3, size, size])],
         [
             helper.make_tensor_value_info("logit", TensorProto.FLOAT, ["n", 1]),
-            helper.make_tensor_value_info("features", TensorProto.FLOAT, ["n", channels, grid, grid]),
+            helper.make_tensor_value_info(
+                "features", TensorProto.FLOAT, ["n", channels, grid, grid]
+            ),
         ],
         initializer=[
             numpy_helper.from_array(conv_w, "conv_w"),

@@ -70,9 +70,7 @@ def test_dhash_detects_near_duplicates_and_separates_different_images():
     original = noise_pixels(seed=1)
     smooth = np.asarray(Image.fromarray(original).resize((64, 64)).resize((256, 256)))
     brighter = np.clip(smooth.astype(np.int16) + 12, 0, 255).astype(np.uint8)
-    other = np.asarray(
-        Image.fromarray(noise_pixels(seed=2)).resize((64, 64)).resize((256, 256))
-    )
+    other = np.asarray(Image.fromarray(noise_pixels(seed=2)).resize((64, 64)).resize((256, 256)))
 
     assert hamming(dhash(smooth), dhash(brighter)) <= 4
     assert hamming(dhash(smooth), dhash(other)) > 10

@@ -6,6 +6,7 @@ convivir sin procesar dos veces el mismo trabajo (ver ``docs/adr/0002-cola-en-ba
 
 Uso: ``python -m app.worker``
 """
+
 from __future__ import annotations
 
 import logging
@@ -45,9 +46,7 @@ def claim(db: Session, analysis_id: int) -> bool:
     result = db.execute(
         update(Analysis)
         .where(Analysis.id == analysis_id, Analysis.status == AnalysisStatus.pending)
-        .values(
-            status=AnalysisStatus.running, started_at=utcnow(), attempts=Analysis.attempts + 1
-        )
+        .values(status=AnalysisStatus.running, started_at=utcnow(), attempts=Analysis.attempts + 1)
     )
     db.commit()
     return result.rowcount == 1
@@ -71,9 +70,7 @@ def requeue_stale(db: Session) -> int:
         failed = db.execute(
             update(Analysis)
             .where(Analysis.id.in_(exhausted), *stale)
-            .values(
-                status=AnalysisStatus.failed, error=INTERRUPTED_ERROR, finished_at=utcnow()
-            )
+            .values(status=AnalysisStatus.failed, error=INTERRUPTED_ERROR, finished_at=utcnow())
         ).rowcount
     requeued = db.execute(
         update(Analysis)

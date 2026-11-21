@@ -5,11 +5,13 @@ Hay dos orígenes. ``POST /api/cohorts`` toma análisis que el investigador ya t
 manifiesto, lo carga y encola un análisis por imagen; el worker cierra la cohorte al terminar el
 último. Un investigador solo ve sus cohortes; el administrador, todas.
 """
+
 from __future__ import annotations
 
 import csv
 import hashlib
 import io
+from collections import Counter
 
 from fastapi import (
     APIRouter,
@@ -27,7 +29,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, joinedload
 from starlette.datastructures import UploadFile as StarletteUploadFile
 
-from ..cohorts import Entry, build_results, progress, refresh_cohort
+from ..cohorts import Entry, build_results, paired_auc_difference, progress, refresh_cohort
 from ..cohorts import summarize as summarize  # noqa: F401  (reexportada: ``tests`` la importa de aquí)
 from ..config import get_settings
 from ..db import get_db
@@ -40,6 +42,7 @@ from ..models import (
     CohortItem,
     CohortSource,
     CohortStatus,
+    Image,
     ModelVersion,
     Role,
     User,
@@ -48,7 +51,7 @@ from ..models import (
 from ..pipeline.imaging import ImageDecodeError
 from ..registry import get_active
 from ..reports import DECISION_LABELS, pdf
-from ..schemas import CohortDetail, CohortMetrics, CohortProgress, CohortSummary
+from ..schemas import CohortDetail, CohortMetrics, CohortProgress, CohortReanalyze, CohortSummary
 from ..services import DuplicateFinder, PreparedImage, prepare_image, store_image
 from ..storage import get_storage
 from ..worker import run_inline
@@ -119,14 +122,69 @@ def _invalid(problems: list[str]) -> HTTPException:
 def list_cohorts(
     db: Session = Depends(get_db), user: User = Depends(_research)
 ) -> list[CohortSummary]:
-    query = (
-        select(Cohort).options(joinedload(Cohort.model_version)).order_by(Cohort.id.desc())
-    )
+    query = select(Cohort).options(joinedload(Cohort.model_version)).order_by(Cohort.id.desc())
     if user.role != Role.admin:
         query = query.where(Cohort.owner_id == user.id)
     cohorts = list(db.scalars(query))
     counts = progress(db, [c.id for c in cohorts])
     return [_summary(c, counts[c.id]) for c in cohorts]
+
+
+def _paired_rows(db: Session, cohort: Cohort):
+    return db.execute(
+        select(
+            Analysis.image_id,
+            CohortItem.patient_ref,
+            CohortItem.label,
+            Analysis.probability,
+            Analysis.decision,
+            Analysis.shift_flag,
+        )
+        .join(Analysis, Analysis.id == CohortItem.analysis_id)
+        .where(CohortItem.cohort_id == cohort.id)
+        .order_by(CohortItem.id)
+    ).all()
+
+
+def _comparison_metrics(cohort: Cohort, rows) -> dict:
+    return {
+        "cohort_id": cohort.id,
+        "model_version_id": cohort.model_version_id,
+        "auc": cohort.results["auc"],
+        "ci": cohort.results["ci"],
+        "brier": cohort.results["brier"],
+        "abstention_rate": cohort.results["abstentions"] / len(rows),
+        "shift_alert_rate": sum(row.shift_flag is True for row in rows) / len(rows),
+        "shift_monitored": sum(row.shift_flag is not None for row in rows),
+    }
+
+
+@router.get("/compare")
+def compare_cohorts(
+    a: int,
+    b: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(_research),
+) -> dict:
+    first, second = _cohort_or_404(db, a, user), _cohort_or_404(db, b, user)
+    for cohort in (first, second):
+        refresh_cohort(db, cohort)
+        if cohort.status != CohortStatus.done or not cohort.results:
+            raise HTTPException(409, "Ambas cohortes deben tener resultados.")
+    rows_a, rows_b = _paired_rows(db, first), _paired_rows(db, second)
+    keys_a = Counter((row.image_id, row.patient_ref, row.label) for row in rows_a)
+    keys_b = Counter((row.image_id, row.patient_ref, row.label) for row in rows_b)
+    if not keys_a or keys_a != keys_b:
+        raise HTTPException(409, "Las cohortes deben compartir imágenes, pacientes y etiquetas.")
+    if any(row.probability is None for rows in (rows_a, rows_b) for row in rows):
+        raise HTTPException(409, "Faltan probabilidades en las cohortes.")
+    entries_a = [Entry(row.patient_ref, row.label, row.probability, row.decision) for row in rows_a]
+    entries_b = [Entry(row.patient_ref, row.label, row.probability, row.decision) for row in rows_b]
+    return {
+        "a": _comparison_metrics(first, rows_a),
+        "b": _comparison_metrics(second, rows_b),
+        "paired_auc_difference": paired_auc_difference(entries_a, entries_b),
+    }
 
 
 @router.get("/{cohort_id}", response_model=CohortDetail)
@@ -135,6 +193,73 @@ def get_cohort(
 ) -> CohortDetail:
     cohort = _cohort_or_404(db, cohort_id, user)
     refresh_cohort(db, cohort)  # si ya terminaron todos los análisis, calcula el resultado
+    return _detail(db, cohort)
+
+
+@router.post("/{cohort_id}/reanalyze", response_model=CohortDetail, status_code=201)
+def reanalyze(
+    cohort_id: int,
+    body: CohortReanalyze,
+    background: BackgroundTasks,
+    db: Session = Depends(get_db),
+    user: User = Depends(_research),
+) -> CohortDetail:
+    source = _cohort_or_404(db, cohort_id, user)
+    model = db.get(ModelVersion, body.model_version_id)
+    if model is None:
+        raise HTTPException(404, "Versión de modelo no encontrada.")
+    query = (
+        select(
+            CohortItem.patient_ref,
+            CohortItem.label,
+            Analysis.image_id,
+            Analysis.roi,
+            Case.created_by_id,
+        )
+        .join(Analysis, Analysis.id == CohortItem.analysis_id)
+        .join(Image, Image.id == Analysis.image_id)
+        .join(Case, Case.id == Image.case_id)
+        .where(CohortItem.cohort_id == source.id)
+        .order_by(CohortItem.id)
+    )
+    rows = db.execute(query).all()
+    if user.role != Role.admin and any(row.created_by_id != user.id for row in rows):
+        raise HTTPException(404, "Cohorte no encontrada.")
+    if not rows:
+        raise HTTPException(409, "La cohorte está vacía.")
+    suffix = f" · {model.version}"
+    cohort = Cohort(
+        name=source.name[: MAX_NAME_LENGTH - len(suffix)] + suffix,
+        source=CohortSource.batch,
+        status=CohortStatus.processing,
+        owner_id=user.id,
+        model_version_id=model.id,
+        csv_hash=source.csv_hash,
+    )
+    db.add(cohort)
+    analyses = []
+    for row in rows:
+        analysis = Analysis(
+            image_id=row.image_id, roi=row.roi, model_version_id=model.id, requested_by_id=user.id
+        )
+        analyses.append(analysis)
+        cohort.items.append(
+            CohortItem(analysis=analysis, patient_ref=row.patient_ref, label=row.label)
+        )
+    db.flush()
+    record(
+        db,
+        user,
+        "cohort_reanalyzed",
+        "cohort",
+        cohort.id,
+        source_cohort_id=source.id,
+        model_version_id=model.id,
+    )
+    db.commit()
+    if get_settings().inline_worker:
+        for analysis in analyses:
+            background.add_task(run_inline, analysis.id)
     return _detail(db, cohort)
 
 
@@ -178,7 +303,10 @@ def _read_analyses(
             raise ValueError(f"Imagen repetida en la fila {line}. Revise su procedencia.")
         pixels.add(analysis.image.pixel_sha256)
         patient_ref = case.patient_ref.strip()
-        if not patient_ref or owners.setdefault(patient_ref, case.created_by_id) != case.created_by_id:
+        if (
+            not patient_ref
+            or owners.setdefault(patient_ref, case.created_by_id) != case.created_by_id
+        ):
             raise ValueError("Seudónimo vacío o compartido por distintos responsables.")
         label = int(row["label"])
         if labels.setdefault(patient_ref, label) != label:
@@ -247,7 +375,9 @@ def _read_manifest(data: bytes) -> list[tuple[int, str, str, int]]:
     reader = csv.DictReader(io.StringIO(text), strict=True)
     try:
         if reader.fieldnames != ["filename", "patient_ref", "label"]:
-            raise HTTPException(422, "La cabecera del manifiesto debe ser filename,patient_ref,label.")
+            raise HTTPException(
+                422, "La cabecera del manifiesto debe ser filename,patient_ref,label."
+            )
         problems: list[str] = []
         rows: list[tuple[int, str, str, int]] = []
         names: dict[str, int] = {}
@@ -258,7 +388,9 @@ def _read_manifest(data: bytes) -> list[tuple[int, str, str, int]]:
                     422, f"El manifiesto supera el límite de {MAX_BATCH_IMAGES} imágenes."
                 )
             if None in row or None in row.values():
-                problems.append(f"Fila {line} del manifiesto: debe tener exactamente tres columnas.")
+                problems.append(
+                    f"Fila {line} del manifiesto: debe tener exactamente tres columnas."
+                )
                 continue
             filename = _basename(row["filename"])
             patient_ref = row["patient_ref"].strip()
@@ -465,9 +597,7 @@ def _create_batch(
                 image_id=image.id, requested_by_id=user.id, model_version_id=model.id, roi=None
             )
             analyses.append(analysis)
-            cohort.items.append(
-                CohortItem(analysis=analysis, patient_ref=patient_ref, label=label)
-            )
+            cohort.items.append(CohortItem(analysis=analysis, patient_ref=patient_ref, label=label))
         db.flush()
         record(db, user, "cohort_created", "cohort", cohort.id)
         db.commit()
@@ -495,7 +625,9 @@ def report(cohort_id: int, db: Session = Depends(get_db), user: User = Depends(_
     decisions = "; ".join(
         f"{DECISION_LABELS.get(code, code)}: {n}" for code, n in sorted(r["decisions"].items())
     )
-    csv_label = "SHA-256 del CSV" if cohort.source == CohortSource.analyses else "SHA-256 del manifiesto"
+    csv_label = (
+        "SHA-256 del CSV" if cohort.source == CohortSource.analyses else "SHA-256 del manifiesto"
+    )
     return pdf(
         f"Auditoría de cohorte {cohort.id}",
         [

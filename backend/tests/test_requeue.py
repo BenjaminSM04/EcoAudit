@@ -1,4 +1,5 @@
 """Análisis interrumpidos: el worker murió con el análisis en ``running``."""
+
 from __future__ import annotations
 
 from datetime import timedelta

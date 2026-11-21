@@ -48,7 +48,8 @@ def update_user(
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Usuario no encontrado.")
     if user.id == admin.id and (body.is_active is False or body.role not in (None, Role.admin)):
         raise HTTPException(
-            status.HTTP_400_BAD_REQUEST, "No puede desactivarse ni quitarse el rol de administrador."
+            status.HTTP_400_BAD_REQUEST,
+            "No puede desactivarse ni quitarse el rol de administrador.",
         )
     changes = body.model_dump(exclude_none=True)
     for key, value in changes.items():

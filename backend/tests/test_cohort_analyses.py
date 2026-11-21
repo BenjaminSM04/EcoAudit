@@ -1,4 +1,5 @@
 """Cohorte desde análisis existentes (CSV), acceso por dueño, informe y tabla."""
+
 from __future__ import annotations
 
 import csv
@@ -8,8 +9,9 @@ import pytest
 from sqlalchemy import func, select
 
 from app import worker
+from app.cohorts import Entry, paired_auc_difference
 from app.devtools import make_demo_bundle
-from app.models import AuditLog, Cohort, Role
+from app.models import Analysis, AuditLog, Cohort, Role
 from app.registry import register_bundle
 
 from .conftest import login, make_user, noise_pixels, png_bytes
@@ -116,9 +118,9 @@ def test_cohort_requires_finished_analyses_and_one_model_version(
         headers=investigador,
         files={"file": ("eco.png", png_bytes(noise_pixels(9)), "image/png")},
     ).json()["id"]
-    pending = client.post(
-        f"/api/images/{image_id}/analyses", headers=investigador, json={}
-    ).json()["id"]
+    pending = client.post(f"/api/images/{image_id}/analyses", headers=investigador, json={}).json()[
+        "id"
+    ]
     assert _post_csv(client, investigador, _csv((first, 1), (pending, 0))).status_code == 422
 
     register_bundle(db, make_demo_bundle(tmp_path / "otro", seed=1), activate=True)
@@ -152,6 +154,91 @@ def test_cohort_access_is_per_owner(client, db, investigador, admin, medico, two
     assert client.get("/api/cohorts/9999", headers=investigador).status_code == 404
     assert client.get("/api/cohorts", headers=medico).status_code == 403
     assert [c["id"] for c in client.get("/api/cohorts", headers=admin).json()] == [cohort_id]
+
+
+def test_reanalyze_uses_same_images_rois_and_selected_model(
+    client, db, investigador, admin, medico, two_analyses, tmp_path
+):
+    first, second = two_analyses
+    roi = {"x": 24, "y": 32, "w": 96, "h": 120}
+    db.get(Analysis, first).roi = roi
+    model = register_bundle(db, make_demo_bundle(tmp_path / "otro", seed=5), activate=False)
+    db.commit()
+    assert not model.is_active
+    source = _post_csv(client, investigador, _csv((first, 1), (second, 0)), name="A").json()
+    source_id = source["id"]
+    endpoint = f"/api/cohorts/{source_id}/reanalyze"
+    body = {"model_version_id": model.id}
+    make_user(db, "otro@test.bo", Role.investigador)
+    other = login(client, "otro@test.bo")
+    assert client.post(endpoint, headers=medico, json=body).status_code == 403
+    assert client.post(endpoint, headers=other, json=body).status_code == 404
+    assert (
+        client.post(endpoint, headers=investigador, json={"model_version_id": 9999}).status_code
+        == 404
+    )
+    response = client.post(endpoint, headers=investigador, json=body)
+    assert response.status_code == 201, response.text
+    created = response.json()
+    assert created["name"] == f"A · {model.version}"
+    assert created["status"] == "processing" and created["progress"]["total"] == 2
+    clone = db.get(Cohort, created["id"])
+    original = db.get(Cohort, source_id)
+    for before, after in zip(original.items, clone.items, strict=True):
+        assert before.analysis_id != after.analysis_id
+        assert before.analysis.image_id == after.analysis.image_id
+        assert before.analysis.roi == after.analysis.roi
+        assert (before.patient_ref, before.label) == (after.patient_ref, after.label)
+        assert after.analysis.model_version_id == model.id
+    compare = "/api/cohorts/compare"
+    params = {"a": source_id, "b": created["id"]}
+    assert client.get(compare, params=params, headers=investigador).status_code == 409
+    assert client.get(compare, params=params, headers=other).status_code == 404
+    assert client.get(compare, params=params, headers=medico).status_code == 403
+    for item in clone.items:
+        assert worker.process_analysis(db, item.analysis_id)
+    response = client.get(compare, params=params, headers=investigador)
+    assert response.status_code == 200, response.text
+    result = response.json()
+    assert result["a"]["auc"] == source["results"]["auc"]
+    assert result["a"]["brier"] == source["results"]["brier"]
+    assert result["b"]["model_version_id"] == model.id
+    assert result["paired_auc_difference"] == {
+        "value": result["b"]["auc"] - result["a"]["auc"],
+        "ci": None,
+    }
+    assert client.get(compare, params=params, headers=admin).json() == result
+    variant = _done_analysis(client, db, investigador, "P-3", seed=8)
+    different = _post_csv(client, investigador, _csv((first, 1), (variant, 0))).json()["id"]
+    assert (
+        client.get(
+            compare, params={"a": source_id, "b": different}, headers=investigador
+        ).status_code
+        == 409
+    )
+    event = db.scalar(select(AuditLog).where(AuditLog.action == "cohort_reanalyzed"))
+    assert event.detail == {"source_cohort_id": source_id, "model_version_id": model.id}
+
+
+def test_paired_bootstrap_is_stratified_by_patient_and_order_independent():
+    first = [
+        Entry("a", 0, 0.1, None),
+        Entry("a", 0, 0.2, None),
+        Entry("b", 0, 0.9, None),
+        Entry("c", 1, 0.7, None),
+        Entry("d", 1, 0.8, None),
+    ]
+    second = [
+        Entry("a", 0, 0.1, None),
+        Entry("a", 0, 0.2, None),
+        Entry("b", 0, 0.3, None),
+        Entry("c", 1, 0.7, None),
+        Entry("d", 1, 0.8, None),
+    ]
+    change = paired_auc_difference(first, second)
+    assert change == {"value": 0.5, "ci": [0, 1]}
+    assert paired_auc_difference(first, list(reversed(second))) == change
+    assert paired_auc_difference(first, first) == {"value": 0, "ci": [0, 0]}
 
 
 def test_cohort_list_is_newest_first_with_summary_fields(client, investigador, two_analyses):

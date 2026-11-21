@@ -13,6 +13,7 @@ Las arquitecturas admitidas terminan en *global average pooling + capa lineal*. 
 de activación de clase (CAM) ``sum_c weight_c * features_c`` es exactamente Grad-CAM, así que la
 explicación se calcula sin gradientes y basta ONNX Runtime en producción.
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -73,7 +74,10 @@ def _validate_card(card: dict) -> None:
     inp = card.get("input") or {}
     need(isinstance(inp.get("size"), int) and inp["size"] > 0, "input.size inválido")
     for key in ("mean", "std"):
-        need(isinstance(inp.get(key), list) and len(inp[key]) == 3, f"input.{key} debe tener 3 valores")
+        need(
+            isinstance(inp.get(key), list) and len(inp[key]) == 3,
+            f"input.{key} debe tener 3 valores",
+        )
     need(isinstance(inp.get("expects_roi"), bool), "falta input.expects_roi (bool)")
 
     members = card.get("members")

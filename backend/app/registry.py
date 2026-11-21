@@ -1,4 +1,5 @@
 """Registro de modelos: alta de bundles y selección del modelo activo."""
+
 from __future__ import annotations
 
 from pathlib import Path

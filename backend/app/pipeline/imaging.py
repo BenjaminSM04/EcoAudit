@@ -7,6 +7,7 @@ institución, etc.).
 Limitación conocida: el texto *quemado* dentro de la imagen (anotaciones del ecógrafo) no se
 elimina. El usuario debe recortarlo antes de subir o delimitar la lesión con el ROI.
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -104,8 +105,10 @@ def decode_upload(data: bytes, filename: str = "") -> DecodedImage:
     if arr.shape[0] * arr.shape[1] > MAX_PIXELS:
         raise ImageDecodeError("La imagen es demasiado grande.")
     # La ecografía en modo B es monocroma: si los tres canales coinciden se guarda un solo canal.
-    if arr.ndim == 3 and np.array_equal(arr[..., 0], arr[..., 1]) and np.array_equal(
-        arr[..., 1], arr[..., 2]
+    if (
+        arr.ndim == 3
+        and np.array_equal(arr[..., 0], arr[..., 1])
+        and np.array_equal(arr[..., 1], arr[..., 2])
     ):
         arr = arr[..., 0]
     arr = np.ascontiguousarray(arr)

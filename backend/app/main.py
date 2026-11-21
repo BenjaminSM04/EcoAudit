@@ -1,4 +1,5 @@
 """Aplicación FastAPI. Desarrollo: ``uvicorn app.main:app --reload``"""
+
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
@@ -10,7 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from . import __version__
 from .config import get_settings
 from .db import init_db, new_session
-from .routers import auth, cases, cohorts, model_registry, users
+from .routers import audit_log, auth, cases, cohorts, dicomweb, model_registry, stats, users
 from .worker import requeue_stale, start_inline_drain
 
 
@@ -39,7 +40,7 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
-    for module in (auth, users, cases, model_registry, cohorts):
+    for module in (auth, users, cases, model_registry, cohorts, stats, dicomweb, audit_log):
         app.include_router(module.router)
 
     @app.get("/api/health", tags=["health"])

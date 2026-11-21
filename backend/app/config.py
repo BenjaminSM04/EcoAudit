@@ -1,4 +1,5 @@
 """Configuración por variables de entorno (prefijo ``ECOAUDIT_``)."""
+
 from __future__ import annotations
 
 from functools import lru_cache

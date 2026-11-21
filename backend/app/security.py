@@ -1,4 +1,5 @@
 """Contraseñas (bcrypt) y tokens de acceso (JWT HS256)."""
+
 from __future__ import annotations
 
 import hashlib

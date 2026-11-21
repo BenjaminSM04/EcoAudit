@@ -1,9 +1,10 @@
 """Tareas de administración.
 
-    python -m app.cli create-user --email a@b.c --name "Nombre" --role admin
-    python -m app.cli register-model RUTA_DEL_BUNDLE --activate
-    python -m app.cli db-upgrade
+python -m app.cli create-user --email a@b.c --name "Nombre" --role admin
+python -m app.cli register-model RUTA_DEL_BUNDLE --activate
+python -m app.cli db-upgrade
 """
+
 from __future__ import annotations
 
 import argparse
@@ -54,8 +55,14 @@ def _register_model(args: argparse.Namespace) -> int:
             print(f"Bundle rechazado: {exc}", file=sys.stderr)
             return 1
         record(
-            db, None, "model_registered", "model_version", model.id,
-            sha256=model.bundle_sha256, activated=args.activate, via="cli",
+            db,
+            None,
+            "model_registered",
+            "model_version",
+            model.id,
+            sha256=model.bundle_sha256,
+            activated=args.activate,
+            via="cli",
         )
         db.commit()
         state = "activo" if model.is_active else "inactivo"

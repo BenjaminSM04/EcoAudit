@@ -1,4 +1,5 @@
 """Orquestación de un análisis: ROI → ensamble → calibración → decisión → CAM."""
+
 from __future__ import annotations
 
 import io

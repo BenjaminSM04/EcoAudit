@@ -1,4 +1,5 @@
 """Cuenta: cambio de contraseña, invalidación de tokens y límite de intentos de login."""
+
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
@@ -66,7 +67,9 @@ def test_change_password_invalidates_old_tokens_but_not_new_ones(client, db):
     # Uno emitido justo después sigue siendo válido.
     fresh = _login_raw(client, "a@test.bo", NEW_PASSWORD)
     assert fresh.status_code == 200
-    assert client.get("/api/auth/me", headers=_bearer(fresh.json()["access_token"])).status_code == 200
+    assert (
+        client.get("/api/auth/me", headers=_bearer(fresh.json()["access_token"])).status_code == 200
+    )
 
 
 def test_change_password_validates_length_and_requires_authentication(client, medico):
@@ -76,9 +79,12 @@ def test_change_password_validates_length_and_requires_authentication(client, me
         json={"current_password": PASSWORD, "new_password": "corta"},
     )
     assert short.status_code == 422
-    assert client.post(
-        "/api/auth/password", json={"current_password": PASSWORD, "new_password": NEW_PASSWORD}
-    ).status_code == 401
+    assert (
+        client.post(
+            "/api/auth/password", json={"current_password": PASSWORD, "new_password": NEW_PASSWORD}
+        ).status_code
+        == 401
+    )
 
 
 def test_change_password_is_audited_and_does_not_affect_other_users(client, db, medico):
@@ -129,7 +135,10 @@ def test_admin_resets_password_and_revokes_tokens(client, db, admin, medico):
 def test_reset_password_is_admin_only_and_validates(client, db, admin, medico, investigador):
     target = db.scalar(select(User).where(User.email == "medico@test.bo"))
     body = {"new_password": NEW_PASSWORD}
-    assert client.post(f"/api/users/{target.id}/password", headers=medico, json=body).status_code == 403
+    assert (
+        client.post(f"/api/users/{target.id}/password", headers=medico, json=body).status_code
+        == 403
+    )
     assert (
         client.post(f"/api/users/{target.id}/password", headers=investigador, json=body).status_code
         == 403
@@ -170,7 +179,10 @@ def test_legacy_token_without_microseconds_is_checked_by_whole_second(client, db
     db.commit()
     second = int(changed.timestamp())
 
-    assert client.get("/api/auth/me", headers=_bearer(_legacy_token(user.id, second))).status_code == 200
+    assert (
+        client.get("/api/auth/me", headers=_bearer(_legacy_token(user.id, second))).status_code
+        == 200
+    )
     assert (
         client.get("/api/auth/me", headers=_bearer(_legacy_token(user.id, second - 5))).status_code
         == 401
@@ -178,9 +190,7 @@ def test_legacy_token_without_microseconds_is_checked_by_whole_second(client, db
 
 
 def test_fresh_token_carries_microsecond_claim():
-    claims = jwt.decode(
-        create_access_token(7), get_settings().secret_key, algorithms=["HS256"]
-    )
+    claims = jwt.decode(create_access_token(7), get_settings().secret_key, algorithms=["HS256"])
     assert claims["iat_us"] // 1_000_000 == claims["iat"]
 
 

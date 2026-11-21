@@ -7,6 +7,7 @@ Hay dos formas de llegar aquí:
 * Línea de comandos (``alembic upgrade head``): se abre una conexión con la URL de
   ``get_settings().database_url`` (``ECOAUDIT_DATABASE_URL``), igual que la API.
 """
+
 from __future__ import annotations
 
 from logging.config import fileConfig

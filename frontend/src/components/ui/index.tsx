@@ -32,7 +32,7 @@ export function EmptyState({ children }: { children: ReactNode }) {
   return <div className="empty-state">
     <svg aria-hidden="true" width="64" height="56" viewBox="0 0 64 56" fill="none">
       <circle cx="32" cy="28" r="26" fill="var(--rose-200)" />
-      <rect x="17" y="13" width="30" height="30" rx="6" fill="white" stroke="currentColor" strokeWidth="1.5" />
+      <rect x="17" y="13" width="30" height="30" rx="6" fill="var(--surface)" stroke="currentColor" strokeWidth="1.5" />
       <path d="M22 30h5l3-7 4 13 3-6h5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
     <div>{children}</div>

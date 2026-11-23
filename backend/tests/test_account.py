@@ -8,7 +8,9 @@ import jwt
 from sqlalchemy import select
 
 from app.config import get_settings
+from app.db import new_session
 from app.models import AuditLog, Role, User, utcnow
+from app.routers import auth
 from app.security import (
     TokenClaims,
     create_access_token,
@@ -85,6 +87,25 @@ def test_change_password_validates_length_and_requires_authentication(client, me
         ).status_code
         == 401
     )
+
+
+def test_login_rejects_password_changed_during_bcrypt(client, db, monkeypatch):
+    user = make_user(db, "a@test.bo", Role.medico)
+    user_id = user.id
+    new_hash = hash_password(NEW_PASSWORD)
+
+    def verify_during_change(password, old_hash):
+        with new_session() as writer:
+            account = writer.get(User, user_id)
+            account.password_hash = new_hash
+            account.password_changed_at = utcnow()
+            writer.commit()
+        return verify_password(password, old_hash)
+
+    with monkeypatch.context() as patched:
+        patched.setattr(auth, "verify_password", verify_during_change)
+        assert _login_raw(client, user.email, PASSWORD).status_code == 401
+    assert _login_raw(client, user.email, NEW_PASSWORD).status_code == 200
 
 
 def test_change_password_is_audited_and_does_not_affect_other_users(client, db, medico):

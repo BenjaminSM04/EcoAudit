@@ -64,6 +64,8 @@ export const BIRADS: Record<Birads, string> = {
 export const BIRADS_ORDER: Birads[] = ['1', '2', '3', '4A', '4B', '4C', '5', '6']
 
 export const AUDIT_ACTION: Record<string, string> = {
+  case_reader_assigned: 'Lectura asignada',
+  demo_seeded: 'Datos de demostración preparados',
   login: 'Inicio de sesión', login_failed: 'Ingreso fallido', login_blocked: 'Ingreso bloqueado',
   password_changed: 'Contraseña cambiada', password_reset: 'Contraseña restablecida',
   user_created: 'Usuario creado', user_updated: 'Usuario actualizado',

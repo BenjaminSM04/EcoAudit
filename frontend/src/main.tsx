@@ -3,7 +3,10 @@ import { createRoot } from 'react-dom/client'
 import { BrowserRouter } from 'react-router-dom'
 import App from './App.tsx'
 import { AuthProvider } from './auth.tsx'
+import { applyTheme, savedTheme } from './theme'
 import './index.css'
+
+applyTheme(savedTheme())
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

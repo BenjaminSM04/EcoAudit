@@ -32,9 +32,9 @@ Ejecute el [plan](06-plan-de-pruebas.md). Use una base o ámbito exclusivamente 
 | M02 | | | | | | |
 | M03 | | | | | | |
 | M04 | | | | | | |
-| M05 | | | | | | |
-| M06 | | | | | | |
-| M07 | | | | | | |
+| M05 | p95 de procesamiento 0,151 s | 49 análisis terminados | Docker/PostgreSQL, Alembic `0002`, bundle de demostración | 2026-11-23 | verificada para el ensayo | [Informe de carga](resultados/carga-2026-11-23.md#latencia-registrada-por-el-servidor) |
+| M06 | p95 total en servidor 1,325 s | 49 análisis terminados | Docker/PostgreSQL, Alembic `0002`, bundle de demostración | 2026-11-23 | verificada para el ensayo | [Informe de carga](resultados/carga-2026-11-23.md#latencia-registrada-por-el-servidor) |
+| M07 | 0,00 % de errores | 48 intentos en tres oleadas por escenario | Docker/PostgreSQL, Alembic `0002`, bundle de demostración | 2026-11-23 | verificada para el ensayo | [Informe de carga](resultados/carga-2026-11-23.md) |
 | M08 | | | | | | |
 | M09 | | | | | | |
 | M10 | | | | | | |
@@ -43,3 +43,5 @@ Ejecute el [plan](06-plan-de-pruebas.md). Use una base o ámbito exclusivamente 
 | M13 | | | | | | |
 | M14 | | | | | | |
 | M15 | | | | | | |
+
+El equipo usó un AMD Ryzen 5 3600 y 15,91 GiB de RAM. Docker dispuso de 12 CPU lógicas y 7,71 GiB. El informe compara 1, 5 y 10 usuarios concurrentes. Con 10 usuarios, el p95 que observó el cliente hasta el resultado fue 1,672 s, el p95 del inicio de sesión fue 5,592 s y se completaron 1,333 resultados por segundo. El escenario de un usuario contiene tres muestras. El ensayo usa PNG sintético y un bundle de demostración. El despliegue hospitalario debe medir su propio perfil de red, imágenes y modelo.

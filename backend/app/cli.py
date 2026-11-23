@@ -23,8 +23,15 @@ from .registry import register_bundle
 from .security import hash_password
 
 
+def _read_password() -> str:
+    if sys.stdin.isatty():
+        return getpass.getpass("Contraseña (mínimo 10 caracteres): ")
+    line = sys.stdin.readline()
+    return line[:-2] if line.endswith("\r\n") else line.removesuffix("\n")
+
+
 def _create_user(args: argparse.Namespace) -> int:
-    password = args.password or getpass.getpass("Contraseña (mínimo 10 caracteres): ")
+    password = args.password if args.password is not None else _read_password()
     if len(password) < 10:
         print("La contraseña debe tener al menos 10 caracteres.", file=sys.stderr)
         return 1
@@ -88,6 +95,22 @@ def _make_demo_bundle(args: argparse.Namespace) -> int:
     return 0
 
 
+def _seed_demo(args: argparse.Namespace) -> int:
+    from .demo_seed import seed_demo
+
+    password = args.password if args.password is not None else _read_password()
+    if len(password) < 10:
+        print("La contraseña debe tener al menos 10 caracteres.", file=sys.stderr)
+        return 1
+    try:
+        created = seed_demo(password)
+    except (BundleError, ValueError) as exc:
+        print(f"No se pudieron preparar los datos de demostración: {exc}", file=sys.stderr)
+        return 1
+    print(f"Datos de demostración preparados. Casos nuevos: {created}.")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="python -m app.cli")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -96,7 +119,9 @@ def main(argv: list[str] | None = None) -> int:
     user.add_argument("--email", required=True)
     user.add_argument("--name", required=True)
     user.add_argument("--role", required=True, choices=[r.value for r in Role])
-    user.add_argument("--password", help="Si se omite, se pide por teclado")
+    user.add_argument(
+        "--password", help="Si se omite, se lee por teclado o por la entrada estándar"
+    )
     user.set_defaults(func=_create_user)
 
     model = sub.add_parser("register-model", help="Valida y registra un bundle de modelo")
@@ -109,6 +134,14 @@ def main(argv: list[str] | None = None) -> int:
     )
     demo.add_argument("directory")
     demo.set_defaults(func=_make_demo_bundle)
+
+    seed = sub.add_parser(
+        "seed-demo", help="Prepara cuentas y casos sintéticos para demostraciones"
+    )
+    seed.add_argument(
+        "--password", help="Si se omite, se lee por teclado o por la entrada estándar"
+    )
+    seed.set_defaults(func=_seed_demo)
 
     upgrade = sub.add_parser(
         "db-upgrade",

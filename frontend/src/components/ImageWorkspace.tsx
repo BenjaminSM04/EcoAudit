@@ -13,14 +13,17 @@ import { useBlobUrl } from './useBlobUrl'
 interface Props {
   image: CaseImage
   models: ModelVersion[]
+  canManage: boolean
+  target: number
 }
 
 const MIN_ROI = 8 // píxeles de imagen; el backend rechaza recortes menores
 
-export default function ImageWorkspace({ image, models }: Props) {
+export default function ImageWorkspace({ image, models, canManage, target }: Props) {
   const { user } = useAuth()
   const imageUrl = useBlobUrl(`/api/images/${image.id}/file`)
-  const [analysis, setAnalysis] = useState<Analysis | null>(image.analyses.at(-1) ?? null)
+  const [analysis, setAnalysis] = useState<Analysis | null>(() => image.analyses.find(a => a.id === target) ?? image.analyses.at(-1) ?? null)
+  const [history, setHistory] = useState(image.analyses)
   const [roi, setRoi] = useState<Roi | null>(analysis?.roi ?? null)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
@@ -40,7 +43,8 @@ export default function ImageWorkspace({ image, models }: Props) {
     // La revelación sigue disponible durante esta visita.
   }
   const complete = analysis?.status === 'done'
-  const hidden = complete && user?.role === 'medico' && !analysis.reading && revealed !== analysis.id && !previouslyRevealed
+  const serverBlinded = analysis?.blinded_for_reader === true
+  const hidden = serverBlinded || (complete && user?.role === 'medico' && !analysis.reading && revealed !== analysis.id && !previouslyRevealed)
   const camUrl = useBlobUrl(analysis?.has_cam && !hidden ? `/api/analyses/${analysis.id}/cam` : null)
 
   function reveal() {
@@ -98,7 +102,7 @@ export default function ImageWorkspace({ image, models }: Props) {
   }
 
   function onPointerDown(event: ReactPointerEvent) {
-    if (busy || waiting || event.button !== 0) return
+    if (!canManage || busy || waiting || event.button !== 0) return
     event.currentTarget.setPointerCapture(event.pointerId)
     dragStart.current = toImagePoint(event)
     setRoi(null)
@@ -140,7 +144,9 @@ export default function ImageWorkspace({ image, models }: Props) {
     setError(null)
     setNotice('')
     try {
-      setAnalysis(await api.requestAnalysis(image.id, roi))
+      const requested = await api.requestAnalysis(image.id, roi)
+      setAnalysis(requested)
+      setHistory(current => [...current, requested])
     } catch (err) {
       setError(err instanceof Error ? err.message : 'No se pudo solicitar el análisis.')
     } finally {
@@ -163,11 +169,36 @@ export default function ImageWorkspace({ image, models }: Props) {
         }
   const model = analysis ? models.find((m) => m.id === analysis.model_version_id) : undefined
 
+  async function selectAnalysis(id: number) {
+    setError(null)
+    setNotice('')
+    setBusy(true)
+    try {
+      const next = await api.getAnalysis(id)
+      setAnalysis(next)
+      setRoi(next.roi)
+    } catch (err) {
+      setError((err as Error).message)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function refreshResult(id: number) {
+    setError(null)
+    try {
+      const next = await api.getAnalysis(id)
+      setAnalysis(current => current?.id === id ? next : current)
+    } catch (err) {
+      setError((err as Error).message)
+    }
+  }
+
   return (
     <section className="card workspace">
       <div className="viewer">
         <div
-          className="frame"
+          className={canManage ? 'frame' : 'frame is-readonly'}
           ref={frameRef}
           style={{ aspectRatio: `${image.width} / ${image.height}`, maxWidth: `${65 * image.width / image.height}dvh` }}
           onPointerDown={onPointerDown}
@@ -193,7 +224,7 @@ export default function ImageWorkspace({ image, models }: Props) {
         </div>
         <p className="muted small">
           Imagen #{image.id} · {image.width}×{image.height} px · origen {image.source_format}.
-          Arrastre sobre la imagen para marcar la lesión (ROI).
+          {canManage && ' Arrastre sobre la imagen para marcar la lesión (ROI).'}
         </p>
         {image.qc_flags.length > 0 && (
           <ul className="flags">
@@ -205,7 +236,11 @@ export default function ImageWorkspace({ image, models }: Props) {
       </div>
 
       <div className="side">
-        <div className="actions">
+        {history.length > 1 && <label>Análisis de la imagen<select value={analysis?.id ?? ''} disabled={busy || waiting}
+          onChange={event => void selectAnalysis(Number(event.target.value))}>
+          {history.map(item => <option key={item.id} value={item.id}>Análisis #{item.id}</option>)}
+        </select></label>}
+        {canManage && <><div className="actions">
           <button onClick={analyze} disabled={busy || waiting}>
             {waiting ? 'Analizando…' : roi ? 'Analizar el ROI' : 'Analizar la imagen completa'}
           </button>
@@ -237,18 +272,22 @@ export default function ImageWorkspace({ image, models }: Props) {
             <Button type="submit" variant="secondary" disabled={busy || waiting}>Aplicar coordenadas</Button>
           </form>
         </details>
-        {roi && <p className="muted small">Revise el recuadro antes de analizar. Puede volver a trazarlo.</p>}
+        {roi && <p className="muted small">Revise el recuadro antes de analizar. Puede volver a trazarlo.</p>}</>}
         {error && <p className="error" role="alert">{error}</p>}
 
         {analysis === null && <p className="muted">Esta imagen todavía no fue analizada.</p>}
         {changed && analysis?.status === 'done' && <p className="banner">La región seleccionada cambió. El informe anterior corresponde al análisis #{analysis.id}. Vuelva a analizar para obtener el resultado de esta selección.</p>}
         {analysis && !changed && !hidden && <ResultPanel analysis={analysis} model={model} />}
         {analysis && complete && !changed && (
-          analysis.reading ? <ReadingSummary analysis={analysis} reading={analysis.reading} />
+          analysis.reading ? !serverBlinded && <ReadingSummary analysis={analysis} reading={analysis.reading} />
             : user?.role !== 'investigador' && <ReadingForm key={analysis.id} id={analysis.id} blinded={hidden}
-              onReveal={hidden ? reveal : undefined} onSaved={reading => setAnalysis(current =>
-                current?.id === reading.analysis_id ? { ...current, reading } : current)} />
+              onReveal={hidden && !serverBlinded ? reveal : undefined} onSaved={reading => {
+                setAnalysis(current => current?.id === reading.analysis_id ? { ...current, reading } : current)
+                window.dispatchEvent(new Event('ecoaudit:reading-saved'))
+                if (serverBlinded) void refreshResult(reading.analysis_id)
+              }} />
         )}
+        {analysis?.reading && serverBlinded && error && <Button variant="secondary" onClick={() => void refreshResult(analysis.id)}>Reintentar consulta del resultado</Button>}
         {analysis && complete && !hidden && !changed && <div className="actions">
           <Button variant="secondary" disabled={exporting} onClick={() => void exportResult(analysis.id, 'pdf')}>
             <Download size={16} aria-hidden="true" /> Descargar PDF · Análisis #{analysis.id}

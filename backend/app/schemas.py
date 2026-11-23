@@ -94,6 +94,7 @@ class AnalysisOut(_Out):
     created_at: datetime
     finished_at: datetime | None
     reading: ClinicalReadingOut | None = None
+    blinded_for_reader: bool = False
 
 
 class ImageOut(_Out):
@@ -125,7 +126,37 @@ class CaseSummary(_Out):
     image_count: int
 
 
+class CaseReaderInput(BaseModel):
+    reader_id: int = Field(gt=0)
+
+
+class ReaderIdentity(_Out):
+    id: int
+    full_name: str
+
+
+class CaseReaderOut(_Out):
+    case_id: int
+    reader_id: int
+    assigned_by: int
+    created_at: datetime
+
+
+class CaseReadersOut(BaseModel):
+    assigned: list[ReaderIdentity]
+    eligible: list[ReaderIdentity]
+
+
+class WorklistItem(_Out):
+    analysis_id: int
+    image_id: int
+    case_id: int
+    patient_ref: str
+    finished_at: datetime | None
+
+
 class CaseOut(_Out):
+    can_manage: bool
     id: int
     patient_ref: str
     notes: str

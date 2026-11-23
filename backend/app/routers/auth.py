@@ -48,13 +48,30 @@ def login(form: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get
             status.HTTP_429_TOO_MANY_REQUESTS, "Demasiados intentos fallidos. Espere 15 minutos."
         )
     user = db.scalar(select(User).where(User.email == email))
-    if user is None or not user.is_active or not verify_password(form.password, user.password_hash):
-        record(db, None, "login_failed", "user", user.id if user else None, email=email)
-        db.commit()
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Correo o contraseña incorrectos.")
-    record(db, user, "login", "user", user.id)
+    user_id = user.id if user is not None else None
+    password_hash = user.password_hash if user is not None and user.is_active else None
+    # bcrypt se ejecuta en el hilo de FastAPI sin retener una conexión del pool.
+    db.rollback()
+    if (
+        user_id is not None
+        and password_hash is not None
+        and verify_password(form.password, password_hash)
+    ):
+        # Emita el token antes de volver a consultar las credenciales. Si se cambian
+        # tras la consulta, el cambio invalida el token por su fecha de emisión.
+        token = create_access_token(user_id)
+        current = db.scalar(
+            select(User).where(
+                User.id == user_id, User.is_active.is_(True), User.password_hash == password_hash
+            )
+        )
+        if current is not None:
+            record(db, current, "login", "user", current.id)
+            db.commit()
+            return Token(access_token=token)
+    record(db, None, "login_failed", "user", user_id, email=email)
     db.commit()
-    return Token(access_token=create_access_token(user.id))
+    raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Correo o contraseña incorrectos.")
 
 
 @router.get("/me", response_model=UserOut)

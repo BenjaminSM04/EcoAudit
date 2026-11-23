@@ -9,9 +9,14 @@ Desde `backend/`, con Python 3.11 y el entorno virtual activo:
 ```powershell
 python -m pip install -e ".[dev]"
 python -m pytest -q tests/test_pipeline.py tests/test_cohorts.py
-python -m pytest -q
+python -m pytest -q --cov=app --cov-report=term --cov-report=xml
 ruff check .
+ruff format --check .
 ```
+
+El job `backend` de CI publica `backend/coverage.xml` como artefacto `cobertura-backend`. El job `docker` ejecuta `docker compose build` para comprobar la construcción de las imágenes.
+
+El 23 de noviembre de 2026, la suite local aprobó 120 pruebas y cubrió 2456 de 2670 líneas de `app` (91,99 %). [Informe de cobertura](resultados/cobertura-2026-11-23.md)
 
 La primera selección cubre decodificación, ROI, bundle, reglas de decisión y métricas. `test_cohorts.py` incluye también un caso API. La suite completa cubre integración mediante TestClient, almacenamiento temporal y un bundle de demostración. Compruebe cuentas, aislamiento, reencolado, migraciones y consistencia de lote. Para verificar de forma focalizada el código I4 visible, ejecute desde `backend/`:
 
@@ -39,6 +44,16 @@ npx playwright show-report
 La configuración inicia Vite en 5174 y la API en 8001, usa Chromium con un trabajador y recrea `e2e/.tmp/`. El informe HTML queda en `playwright-report/` y conserva trazas y capturas de fallos conforme a la configuración. Los recorridos cubren ingreso, cuenta, casos, visor, auditoría, administración y aislamiento. La [matriz de trazabilidad](04-trazabilidad.md) identifica las pruebas aplicables. Ejecute también el humo de Compose con PostgreSQL, incluyendo una parada del worker y recuperación del trabajo bajo condiciones controladas.
 
 ## Carga y latencia
+
+Para reproducir el ensayo exploratorio de 1, 5 y 10 usuarios concurrentes, prepare el stack de prueba con un bundle de demostración activo y una cuenta ficticia. Defina `ECOAUDIT_CARGA_EMAIL` y `ECOAUDIT_CARGA_PASSWORD` en el entorno del cliente. Desde la raíz, con el entorno de desarrollo del backend activo:
+
+```powershell
+python tools/carga/prueba_carga.py --url http://localhost:8080 --repeticiones 3 --informe ./carga-local.md
+```
+
+El cliente crea casos sintéticos, sube un PNG por sesión y espera el resultado. Use una base de ensayo y mantenga sus agregados separados. El [informe del 23 de noviembre](resultados/carga-2026-11-23.md) documenta este perfil exploratorio.
+
+Para el perfil extendido de aceptación:
 
 1. En un Compose aislado, anote CPU, RAM, almacenamiento, concurrencia y el modelo versionado que se va a ensayar. Use un worker, PNG de prueba de tamaño fijo y un conjunto congelado de entradas. Realice diez análisis de calentamiento. Use una base o un ámbito separado para la medición y mantenga el calentamiento fuera de los agregados.
 2. Con k6 o un cliente HTTP equivalente en un directorio de ensayos, autentique cuatro cuentas o clientes autorizados. Prepare imágenes. Envíe 100 solicitudes de análisis repartidas entre los cuatro clientes, con una operación en curso por cliente. Sondee cada segundo hasta obtener la condición terminal, con límite de 60 s por solicitud. Registre códigos, estados y plazos excedidos.

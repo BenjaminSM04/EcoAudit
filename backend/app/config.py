@@ -5,7 +5,7 @@ from __future__ import annotations
 from functools import lru_cache
 from pathlib import Path
 
-from pydantic import model_validator
+from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 _DEV_SECRET = "dev-only-secret-change-me-before-any-deployment"
@@ -27,6 +27,7 @@ class Settings(BaseSettings):
     worker_poll_seconds: float = 1.0
     # Un análisis ``running`` más antiguo que esto se considera interrumpido y se reencola.
     analysis_timeout_seconds: int = 300
+    drift_alert_rate: float = Field(default=0.3, ge=0, le=1)
 
     @model_validator(mode="after")
     def _no_default_secret_outside_dev(self) -> Settings:

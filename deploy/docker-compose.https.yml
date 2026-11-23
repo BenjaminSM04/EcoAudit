@@ -1,0 +1,27 @@
+services:
+  api:
+    environment:
+      ECOAUDIT_CORS_ORIGINS: https://${ECOAUDIT_DOMAIN:?defina ECOAUDIT_DOMAIN en .env}
+
+  web:
+    ports: !reset []
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    environment:
+      ECOAUDIT_DOMAIN: ${ECOAUDIT_DOMAIN:?defina ECOAUDIT_DOMAIN en .env}
+      ECOAUDIT_TLS_MODE: ${ECOAUDIT_TLS_MODE:-publico}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - web
+
+volumes:
+  caddy_data:
+  caddy_config:

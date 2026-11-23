@@ -102,6 +102,17 @@ class Case(Base):
     )
 
 
+class CaseReader(Base):
+    __tablename__ = "case_readers"
+
+    case_id: Mapped[int] = mapped_column(
+        ForeignKey("cases.id", ondelete="CASCADE"), primary_key=True
+    )
+    reader_id: Mapped[int] = mapped_column(ForeignKey("users.id"), primary_key=True, index=True)
+    assigned_by: Mapped[int] = mapped_column(ForeignKey("users.id"))
+    created_at: Mapped[datetime] = mapped_column(UtcDateTime, default=utcnow)
+
+
 class Image(Base):
     __tablename__ = "images"
 

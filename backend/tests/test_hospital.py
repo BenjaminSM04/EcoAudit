@@ -5,10 +5,10 @@ import io
 from datetime import UTC, datetime, timedelta
 
 import pytest
-from sqlalchemy import select
+from sqlalchemy import insert, select
 
 from app.models import Analysis, AnalysisStatus, AuditLog, Case, ClinicalReading, Image, User
-from app.routers import stats
+from app.routers import audit_log, stats
 
 
 def _analysis(db, email, model_id, now, *, decision=None, shift=None, age=0, seconds=4):
@@ -111,7 +111,14 @@ def test_readings_and_fhir(client, db, medico, investigador, admin, active_model
     assert client.get(f"{base}/fhir", headers=medico).status_code == 409
     assert client.get(f"{base}/fhir", headers=investigador).status_code == 404
     assert client.get(url, headers=investigador).status_code == 404
-    assert client.post(url, headers=investigador, json=payload).status_code == 403
+    assert client.post(url, headers=investigador, json=payload).status_code == 404
+    own = _analysis(db, "investigador@test.bo", active_model.id, now)
+    assert (
+        client.post(
+            f"/api/analyses/{own.id}/reading", headers=investigador, json=payload
+        ).status_code
+        == 403
+    )
     for invalid in ({"birads": "0"}, {"notes": "x" * 2001}, {"blinded": "sí"}):
         assert client.post(url, headers=medico, json=payload | invalid).status_code == 422
     created = client.post(url, headers=medico, json=payload)
@@ -226,13 +233,28 @@ def test_audit_filters_order_and_csv(client, db, medico, admin):
     second = client.get(url, headers=admin, params=filters | {"offset": 1}).json()
     assert first["total"] == second["total"] == 2
     assert first["items"][0]["id"] > second["items"][0]["id"]
-    response = client.get(f"{url}.csv", headers=admin, params=filters | {"offset": 1})
+    response = client.get(f"{url}.csv", headers=admin, params=filters)
     assert response.status_code == 200 and response.headers["X-Total-Count"] == "2"
     assert response.headers["content-type"].startswith("text/csv")
-    (row,) = csv.DictReader(io.StringIO(response.text))
-    assert row["id"] == str(second["items"][0]["id"])
-    assert row["detail"] == '{"origen": "ecografía"}'
+    rows = list(csv.DictReader(io.StringIO(response.text)))
+    assert [int(row["id"]) for row in rows] == [first["items"][0]["id"], second["items"][0]["id"]]
+    assert all(row["detail"] == '{"origen": "ecografía"}' for row in rows)
     assert client.get(url, headers=admin, params={"limit": 501}).status_code == 422
     assert (
         client.get(url, headers=admin, params={"desde": "2026-01-01T00:00:00"}).status_code == 422
     )
+
+
+def test_audit_csv_streams_multiple_batches_and_caps_export(client, db, admin, monkeypatch):
+    monkeypatch.setattr(audit_log, "CSV_LIMIT", 503)
+    db.execute(
+        insert(AuditLog),
+        [{"action": "prueba", "entity": "case", "entity_id": i} for i in range(520)],
+    )
+    db.commit()
+    response = client.get("/api/audit-log.csv", headers=admin, params={"action": "prueba"})
+    assert response.status_code == 200 and response.headers["X-Total-Count"] == "520"
+    assert "content-length" not in response.headers
+    rows = list(csv.DictReader(io.StringIO(response.text)))
+    assert len(rows) == 503
+    assert [int(row["entity_id"]) for row in rows] == list(range(519, 16, -1))

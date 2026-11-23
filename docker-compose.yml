@@ -4,7 +4,10 @@
 # La interfaz queda en http://localhost:8080
 
 x-backend: &backend
-  build: ./backend
+  build:
+    context: ./backend
+    args:
+      ECOAUDIT_DEMO: ${ECOAUDIT_DEMO:-0}
   environment:
     ECOAUDIT_ENVIRONMENT: prod
     ECOAUDIT_DATABASE_URL: postgresql+psycopg://ecoaudit:${POSTGRES_PASSWORD:?defina POSTGRES_PASSWORD en .env}@db:5432/ecoaudit

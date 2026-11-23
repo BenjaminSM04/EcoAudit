@@ -9,7 +9,9 @@ COPY app ./app
 # relativo al paquete; uvicorn y `python -m app.*` cargan /srv/app, no la copia de site-packages).
 COPY alembic.ini ./
 COPY migrations ./migrations
-RUN pip install --no-cache-dir .
+ARG ECOAUDIT_DEMO=0
+RUN if [ "$ECOAUDIT_DEMO" = "1" ]; then pip install --no-cache-dir '.[demo]'; \
+    else pip install --no-cache-dir .; fi
 
 RUN useradd --create-home ecoaudit && mkdir -p /data && chown ecoaudit /data
 USER ecoaudit

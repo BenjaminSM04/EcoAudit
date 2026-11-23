@@ -123,3 +123,16 @@ docker compose exec api python -m app.cli create-user --email ... --name ... --r
 ```
 
 Levanta PostgreSQL, la API, el worker y la interfaz detrás de nginx.
+
+Para preparar una demostración completa en una instancia de ensayo, compile con el extra
+`demo` y cargue el modelo y los casos sintéticos. Sustituya el ejemplo por una contraseña
+de al menos 10 caracteres.
+
+```bash
+ECOAUDIT_DEMO=1 docker compose up --build -d
+docker compose exec api python -m app.cli seed-demo --password 'CAMBIE-ESTA-CLAVE'
+```
+
+En PowerShell, ejecute `$env:ECOAUDIT_DEMO = '1'` antes de `docker compose up --build -d`.
+Las cuentas de ensayo son `admin@ecoaudit.test`, `medico1@ecoaudit.test`,
+`medico2@ecoaudit.test` e `investigador@ecoaudit.test`.

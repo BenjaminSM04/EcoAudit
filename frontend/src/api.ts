@@ -51,6 +51,7 @@ export interface Analysis {
   created_at: string
   finished_at: string | null
   reading: ClinicalReading | null
+  blinded_for_reader: boolean
 }
 
 export interface CaseImage {
@@ -74,11 +75,22 @@ export interface CaseSummary {
 }
 
 export interface CaseDetail {
+  can_manage: boolean
   id: number
   patient_ref: string
   notes: string
   created_at: string
   images: CaseImage[]
+}
+
+export interface ReaderIdentity { id: number; full_name: string }
+export interface CaseReaders { assigned: ReaderIdentity[]; eligible: ReaderIdentity[] }
+export interface WorklistItem {
+  analysis_id: number
+  image_id: number
+  case_id: number
+  patient_ref: string
+  finished_at: string | null
 }
 
 export interface ModelCard {
@@ -179,6 +191,29 @@ export interface Concordance {
   n_unblinded: number
   birads: Record<Birads, number>
 }
+export interface InterReader {
+  n: number
+  pairs: {
+    readers: [ReaderIdentity, ReaderIdentity]
+    n: number
+    kappa: number | null
+    weighted_kappa: number | null
+    agreement_percent: number
+  }[]
+}
+export interface DriftPoint {
+  week: string
+  n: number
+  shift_alert_rate: number | null
+  mean_shift_score: number | null
+  abstention_rate: number | null
+  alert: boolean
+}
+export interface Drift {
+  weeks: string[]
+  alert_threshold: number
+  models: { model_version_id: number; name: string; version: string; weeks: DriftPoint[] }[]
+}
 export type ConfidenceInterval = [number, number] | null
 export interface CohortComparisonItem {
   cohort_id: number
@@ -195,7 +230,8 @@ export interface Comparison {
   b: CohortComparisonItem
   paired_auc_difference: { value: number; ci: ConfidenceInterval }
 }
-export interface AuditFilters { user_id?: number; action?: string; desde?: string; hasta?: string; limit?: number; offset?: number }
+type AuditCriteria = { user_id?: number; action?: string; desde?: string; hasta?: string }
+export type AuditFilters = AuditCriteria & { limit?: number; offset?: number }
 export interface AuditEntry { id: number; user_id: number | null; action: string; entity: string; entity_id: number | null; detail: Record<string, unknown>; created_at: string }
 export interface AuditLog { total: number; limit: number; offset: number; items: AuditEntry[] }
 export interface DicomReceipt {
@@ -312,6 +348,9 @@ export const api = {
   overview: () => json<Overview>('/api/stats/overview'),
   performance: () => json<Performance>('/api/stats/performance'),
   concordance: () => json<Concordance>('/api/stats/concordance'),
+  interReader: () => json<InterReader>('/api/stats/inter-reader'),
+  drift: () => json<Drift>('/api/stats/drift'),
+  worklist: () => json<WorklistItem[]>('/api/worklist'),
   getReading: (id: number) => json<ClinicalReading>(`/api/analyses/${id}/reading`),
   createReading: (id: number, data: ReadingInput) =>
     json<ClinicalReading>(`/api/analyses/${id}/reading`, body('POST', data)),
@@ -322,7 +361,8 @@ export const api = {
     json<CohortDetail>(`/api/cohorts/${id}/reanalyze`, body('POST', { model_version_id })),
   compare: (a: number, b: number) => json<Comparison>(`/api/cohorts/compare?a=${a}&b=${b}`),
   auditLog: (filters: AuditFilters) => json<AuditLog>(`/api/audit-log?${auditQuery(filters)}`),
-  exportAuditLog: (filters: AuditFilters) => downloadFile(`/api/audit-log.csv?${auditQuery(filters)}`, 'bitacora.csv'),
+  exportAuditLog: ({ user_id, action, desde, hasta }: AuditCriteria) =>
+    downloadFile(`/api/audit-log.csv?${auditQuery({ user_id, action, desde, hasta })}`, 'bitacora.csv'),
   async importDicom(files: File[]): Promise<DicomReceipt> {
     const nonce = Array.from(crypto.getRandomValues(new Uint8Array(16)), byte => byte.toString(16).padStart(2, '0')).join('')
     const boundary = `ecoaudit-${nonce}`
@@ -357,6 +397,9 @@ export const api = {
   createCase: (patient_ref: string, notes: string) =>
     json<CaseDetail>('/api/cases', body('POST', { patient_ref, notes })),
   getCase: (id: number) => json<CaseDetail>(`/api/cases/${id}`),
+  caseReaders: (id: number) => json<CaseReaders>(`/api/cases/${id}/readers`),
+  assignReader: (id: number, reader_id: number) =>
+    json<{ reader_id: number }>(`/api/cases/${id}/readers`, body('POST', { reader_id })),
   uploadImage: (caseId: number, file: File) => {
     const form = new FormData()
     form.append('file', file)

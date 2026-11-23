@@ -1,0 +1,12 @@
+(publico) {
+	reverse_proxy web:80
+}
+
+(interno) {
+	tls internal
+	reverse_proxy web:80
+}
+
+{$ECOAUDIT_DOMAIN} {
+	import {$ECOAUDIT_TLS_MODE:publico}
+}

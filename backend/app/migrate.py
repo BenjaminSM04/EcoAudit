@@ -50,7 +50,7 @@ log = logging.getLogger("ecoaudit.db")
 # de trabajo.
 ALEMBIC_INI = Path(__file__).resolve().parent.parent / "alembic.ini"
 ADOPTION_REVISION = "0001"
-_TABLES_AFTER_ADOPTION = {"clinical_readings"}
+_TABLES_AFTER_ADOPTION = {"clinical_readings", "case_readers"}
 
 # Clave del bloqueo consultivo de PostgreSQL: la API y el worker arrancan a la vez y no deben
 # migrar al mismo tiempo.

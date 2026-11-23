@@ -56,7 +56,7 @@ export default function AuditLogPage() {
     setExportError('')
     try {
       await api.exportAuditLog(filters)
-      setNotice('Se descargó el CSV de la página actual.')
+      setNotice('Se descargó el CSV con los filtros aplicados.')
     } catch (err) {
       setExportError((err as Error).message)
     } finally {
@@ -65,8 +65,8 @@ export default function AuditLogPage() {
   }
 
   return <div className="page">
-    <div className="page-heading"><div><h1>Bitácora</h1><p>Actividad registrada por EcoAudit. El CSV incluye la página filtrada que se muestra.</p></div>
-      <Button variant="secondary" onClick={() => void exportCsv()} disabled={download || !logs?.items.length}><Download size={18} aria-hidden="true" /> Exportar CSV</Button>
+    <div className="page-heading"><div><h1>Bitácora</h1><p>El CSV incluye las filas de todas las páginas filtradas, hasta las 50 000 más recientes.</p></div>
+      <Button variant="secondary" onClick={() => void exportCsv()} disabled={download || !logs?.total}><Download size={18} aria-hidden="true" /> Exportar CSV</Button>
     </div>
     <form className="card inline-form" onSubmit={submit}>
       <label className="grow">Usuario<select aria-label="Usuario" value={draft.user} onChange={e => setDraft({ ...draft, user: e.target.value })}>

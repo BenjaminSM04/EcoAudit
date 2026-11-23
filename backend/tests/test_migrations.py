@@ -1,7 +1,6 @@
 """Migraciones con Alembic y adopción de bases anteriores.
 
-Estas pruebas usan bases SQLite propias en archivos temporales; no tocan la base de las demás
-pruebas (que la crea ``conftest`` con ``create_all``).
+Estas pruebas usan bases SQLite propias en archivos temporales.
 """
 
 from __future__ import annotations
@@ -62,6 +61,7 @@ def _legacy_database(engine) -> None:
     ``analyses.attempts``, ``cohorts`` ni ``cohort_items``, y con datos."""
     Base.metadata.create_all(engine)
     with engine.begin() as connection:
+        connection.execute(text("DROP TABLE case_readers"))
         connection.execute(text("DROP TABLE clinical_readings"))
         connection.execute(text("DROP TABLE cohort_items"))
         connection.execute(text("DROP TABLE cohorts"))
@@ -86,9 +86,9 @@ def _legacy_database(engine) -> None:
 def test_migrations_on_empty_database_match_the_models(engine):
     report = init_db(engine)
 
-    assert report.revision == "0002" and not report.adopted
+    assert report.revision == "0003" and not report.adopted
     with engine.connect() as connection:
-        assert _revision(connection) == "0002"
+        assert _revision(connection) == "0003"
         assert _schema(connection) == _expected_schema()
         # Tipos, nulabilidad, índices y claves: nada que Alembic detecte como distinto.
         context = MigrationContext.configure(connection, opts={"compare_type": True})
@@ -98,7 +98,7 @@ def test_migrations_on_empty_database_match_the_models(engine):
 def test_running_migrations_twice_changes_nothing(engine):
     init_db(engine)
     report = init_db(engine)
-    assert not report.adopted and report.revision == "0002"
+    assert not report.adopted and report.revision == "0003"
 
 
 def test_old_database_is_adopted_and_usable(engine):
@@ -110,11 +110,11 @@ def test_old_database_is_adopted_and_usable(engine):
 
     report = init_db(engine)
 
-    assert report.adopted and report.revision == "0002"
+    assert report.adopted and report.revision == "0003"
     assert sorted(report.tables_created) == ["cohort_items", "cohorts"]
     assert sorted(report.columns_added) == ["analyses.attempts", "users.password_changed_at"]
     with engine.connect() as connection:
-        assert _revision(connection) == "0002"
+        assert _revision(connection) == "0003"
         assert _schema(connection) == _expected_schema()
         context = MigrationContext.configure(connection, opts={"compare_type": True})
         assert compare_metadata(context, Base.metadata) == []
@@ -169,7 +169,7 @@ def test_adoption_adds_columns_with_index_default_and_foreign_key(engine, monkey
         assert [i["name"] for i in inspector.get_indexes("cosa")] == ["ix_cosa_etiqueta"]
         assert inspector.get_foreign_keys("cosa")[0]["referred_table"] == "padre"
         assert connection.execute(text("SELECT nivel FROM cosa")).scalar_one() == 3
-        assert _revision(connection) == "0002"
+        assert _revision(connection) == "0003"
 
 
 def test_adoption_fails_clearly_when_a_required_column_has_no_default(engine):
@@ -192,4 +192,4 @@ def test_adoption_fails_clearly_when_a_required_column_has_no_default(engine):
 def test_cli_db_upgrade_reports_the_revision(capsys):
     # Apunta a la base de pruebas (la fija conftest con ECOAUDIT_DATABASE_URL).
     assert cli.main(["db-upgrade"]) == 0
-    assert "revisión 0002" in capsys.readouterr().out
+    assert "revisión 0003" in capsys.readouterr().out

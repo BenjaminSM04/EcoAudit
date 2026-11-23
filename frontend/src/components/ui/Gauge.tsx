@@ -21,7 +21,7 @@ export function Gauge({ value, band, unreliable }: {
         <path d={arc(0, 1)} fill="none" stroke="#f2cedb" strokeWidth="12" strokeLinecap="round" />
         {band && <path d={arc(band.abstain_low, band.abstain_high)} fill="none" stroke="#D9C8A9" strokeWidth="12" />}
         {marker && <circle cx={marker[0]} cy={marker[1]} r="8" fill="#7A3D50" stroke="white" strokeWidth="3" />}
-        <text x="16" y="117" fill="#66545f" fontSize="9">0 %</text><text x="180" y="117" fill="#66545f" fontSize="9">100 %</text>
+        <text x="16" y="117" fill="var(--muted)" fontSize="9">0 %</text><text x="180" y="117" fill="var(--muted)" fontSize="9">100 %</text>
       </svg>
       <strong>{percent(value)}</strong>
     </div>

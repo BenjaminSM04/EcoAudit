@@ -2,14 +2,16 @@ import { useEffect, useId, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Activity, CheckCircle2, CirclePause, Clock3, FolderOpen, Image, Layers3, TriangleAlert } from 'lucide-react'
 import { Area, AreaChart, CartesianGrid, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
-import { api, type Concordance, type Overview, type Performance } from '../api'
+import { api, type Concordance, type Drift, type InterReader, type Overview, type Performance } from '../api'
 import { Card, EmptyState, Skeleton, StatCard, Table } from '../components/ui'
 import { DECISION, DECISION_ORDER, decimal, percent } from '../labels'
 import { useAuth } from '../session'
+import DriftCard from '../components/DriftCard'
 
-const colors = ['#77ba99', '#c6a978', '#ba3a50', '#7963a1']
+const colors = ['var(--chart-mint)', 'var(--chart-sand)', 'var(--chart-red)', 'var(--chart-orchid)']
 const seconds = (value: number | null) => value === null ? '—' : `${decimal(value)} s`
 const shortDay = (iso: string) => `${iso.slice(8, 10)}/${iso.slice(5, 7)}`
+const tooltipStyle = { background: 'var(--surface)', borderColor: 'var(--control-line)', color: 'var(--text)' }
 
 export default function DashboardPage() {
   const { user } = useAuth()
@@ -18,6 +20,8 @@ export default function DashboardPage() {
   const [data, setData] = useState<Overview | null>(null)
   const [agreement, setAgreement] = useState<Concordance | null>(null)
   const [performance, setPerformance] = useState<Performance | null>(null)
+  const [interReader, setInterReader] = useState<InterReader | null>(null)
+  const [drift, setDrift] = useState<Drift | null>(null)
   const [errors, setErrors] = useState<Record<string, string>>({})
 
   useEffect(() => {
@@ -27,7 +31,11 @@ export default function DashboardPage() {
     }
     void api.overview().then(value => { if (alive) setData(value) }).catch(failed('Resumen'))
     void api.concordance().then(value => { if (alive) setAgreement(value) }).catch(failed('Concordancia'))
-    if (canAudit) void api.performance().then(value => { if (alive) setPerformance(value) }).catch(failed('Latencia por modelo'))
+    if (canAudit) {
+      void api.performance().then(value => { if (alive) setPerformance(value) }).catch(failed('Latencia por modelo'))
+      void api.interReader().then(value => { if (alive) setInterReader(value) }).catch(failed('Concordancia entre lectores'))
+      void api.drift().then(value => { if (alive) setDrift(value) }).catch(failed('Deriva del modelo'))
+    }
     return () => { alive = false }
   }, [canAudit])
 
@@ -56,11 +64,11 @@ export default function DashboardPage() {
             <ResponsiveContainer width="100%" height="100%" minWidth={0}>
               <AreaChart data={data.analyses_by_day} margin={{ top: 12, right: 12, bottom: 4, left: 0 }}>
                 <defs><linearGradient id={gradient} x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#BF658F" stopOpacity={.38} /><stop offset="100%" stopColor="#BF658F" stopOpacity={.04} /></linearGradient></defs>
-                <CartesianGrid vertical={false} stroke="#ecdee4" strokeDasharray="4 4" />
-                <XAxis dataKey="date" tickFormatter={shortDay} tick={{ fill: '#66545f', fontSize: 11 }} minTickGap={22} axisLine={false} tickLine={false} />
-                <YAxis width={34} allowDecimals={false} tick={{ fill: '#66545f', fontSize: 11 }} axisLine={false} tickLine={false} />
-                <Tooltip labelFormatter={value => shortDay(String(value))} />
-                <Area isAnimationActive={false} type="monotone" dataKey="count" name="Solicitudes" stroke="#934565" strokeWidth={2.5} fill={`url(#${gradient})`} />
+                <CartesianGrid vertical={false} stroke="var(--line)" strokeDasharray="4 4" />
+                <XAxis dataKey="date" tickFormatter={shortDay} tick={{ fill: 'var(--muted)', fontSize: 11 }} minTickGap={22} axisLine={false} tickLine={false} />
+                <YAxis width={34} allowDecimals={false} tick={{ fill: 'var(--muted)', fontSize: 11 }} axisLine={false} tickLine={false} />
+                <Tooltip labelFormatter={value => shortDay(String(value))} contentStyle={tooltipStyle} itemStyle={{ color: 'var(--text)' }} />
+                <Area isAnimationActive={false} type="monotone" dataKey="count" name="Solicitudes" stroke="var(--brand)" strokeWidth={2.5} fill={`url(#${gradient})`} />
               </AreaChart>
             </ResponsiveContainer>
           </div>
@@ -70,7 +78,7 @@ export default function DashboardPage() {
           <h2>Distribución de decisiones</h2><p className="muted small">Análisis terminados con decisión</p>
           {total > 0 ? <div className="donut">
             <ResponsiveContainer width="100%" height="100%" minWidth={0}>
-              <PieChart><Pie isAnimationActive={false} data={decisions.filter(item => item.value > 0)} dataKey="value" nameKey="name" innerRadius="65%" outerRadius="92%" paddingAngle={2} stroke="none" /><Tooltip /></PieChart>
+              <PieChart><Pie isAnimationActive={false} data={decisions.filter(item => item.value > 0)} dataKey="value" nameKey="name" innerRadius="65%" outerRadius="92%" paddingAngle={2} stroke="none" /><Tooltip contentStyle={tooltipStyle} itemStyle={{ color: 'var(--text)' }} /></PieChart>
             </ResponsiveContainer>
             <div className="donut-total" aria-hidden="true"><strong>{total}</strong><small>Decisiones</small></div>
           </div> : <EmptyState>Aún no hay decisiones registradas.</EmptyState>}
@@ -98,6 +106,17 @@ export default function DashboardPage() {
         <Link to="/modelos">Ver registro de modelos</Link>
       </Card>}
     </div>
+    {canAudit && (interReader ? <Card className="page">
+      <h2>Concordancia entre lectores</h2>
+      <p className="muted">{interReader.n} {interReader.n === 1 ? 'análisis con doble lectura' : 'análisis con dos o más lecturas médicas'}.</p>
+      {interReader.pairs.length ? <Table label="Concordancia por par de médicos"><thead><tr>
+        <th scope="col">Médicos</th><th scope="col">Análisis</th><th scope="col">Kappa ≥ 4A</th><th scope="col">Kappa ponderada lineal</th><th scope="col">Acuerdo exacto</th>
+      </tr></thead><tbody>{interReader.pairs.map(pair => <tr key={pair.readers.map(reader => reader.id).join('-')}>
+        <th scope="row">{pair.readers.map(reader => reader.full_name).join(' y ')}</th>
+        <td>{pair.n}</td><td>{decimal(pair.kappa)}</td><td>{decimal(pair.weighted_kappa)}</td><td>{percent(pair.agreement_percent / 100, 1)}</td>
+      </tr>)}</tbody></Table> : <EmptyState>Aún no hay pares de médicos con lecturas en común.</EmptyState>}
+    </Card> : !errors['Concordancia entre lectores'] && <Skeleton label="Cargando concordancia entre lectores" />)}
+    {canAudit && (drift ? <DriftCard drift={drift} /> : !errors['Deriva del modelo'] && <Skeleton label="Cargando deriva del modelo" />)}
     {canAudit && (performance ? <Card className="page"><h2>Latencia por versión de modelo</h2>
       {performance.models.length ? <Table label="Latencia por versión en segundos"><thead><tr><th scope="col">Versión</th><th scope="col">Medición</th><th scope="col">n</th><th scope="col">Media</th><th scope="col">p50</th><th scope="col">p95</th><th scope="col">Máxima</th></tr></thead><tbody>
         {performance.models.flatMap(model => (['processing', 'total'] as const).map(kind => {

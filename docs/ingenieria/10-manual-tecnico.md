@@ -29,7 +29,7 @@ La interfaz local usa `http://localhost:5173` y Vite reenvía `/api` a `http://1
 
 ## Docker Compose
 
-Desde la raíz, copie `.env.example` a `.env` en una instalación nueva y complete sus dos valores. Mantenga las credenciales fuera del control de versiones. Use una clave generada con `python -c "import secrets; print(secrets.token_urlsafe(48))"` y una contraseña de PostgreSQL apta para la URL construida por Compose o codificada para ese uso según la configuración operativa.
+Desde la raíz, copie `.env.example` a `.env` en una instalación nueva y complete sus dos valores. Mantenga las credenciales fuera del control de versiones. Genere la clave de firma con un generador criptográfico y use una contraseña de PostgreSQL apta para la URL construida por Compose o codificada para ese uso según la configuración operativa.
 
 ```powershell
 Copy-Item .env.example .env
@@ -42,17 +42,27 @@ docker compose exec api python -m app.cli create-user --email admin@ecoaudit.loc
 
 Compose inicia `db` (PostgreSQL 16), `api`, `worker` y `web` (nginx). Publica HTTP en 8080. Comparte `storage` entre API y worker, con el almacén efectivo en `/data/storage`. `pgdata` contiene los datos del motor. Valide `http://localhost:8080/api/health` y haga un análisis de humo desde la interfaz.
 
+Para una demostración completa, use una instancia de ensayo con sus propios volúmenes. Con `ECOAUDIT_DEMO=1`, Compose compila la API y el worker con el extra `demo`, que incorpora `onnx`. El valor predeterminado es `0`. Una vez sana la API, cargue el bundle, las cuentas y los casos sintéticos con una contraseña de al menos 10 caracteres.
+
+```bash
+ECOAUDIT_DEMO=1 docker compose up --build -d
+docker compose exec api python -m app.cli seed-demo --password 'CAMBIE-ESTA-CLAVE'
+```
+
+En PowerShell, ejecute `$env:ECOAUDIT_DEMO = '1'` antes de `docker compose up --build -d`. Inicie sesión en `http://localhost:8080` con `admin@ecoaudit.test`, `medico1@ecoaudit.test`, `medico2@ecoaudit.test` o `investigador@ecoaudit.test`. Para generar únicamente el bundle, ejecute `docker compose exec api python -m app.cli make-demo-bundle /tmp/ecoaudit-demo`.
+
 ## Configuración
 
 | Variable | Valor base y uso |
 | --- | --- |
 | `POSTGRES_PASSWORD` | Obligatoria en Compose. Se utiliza en la inicialización y conexión a PostgreSQL. |
+| `ECOAUDIT_DEMO` | Argumento de compilación de Compose. `1` instala el extra `demo`; el valor predeterminado es `0`. |
 | `ECOAUDIT_SECRET_KEY` | Firma JWT. Defina una clave propia en despliegue. Fuera de `dev` se rechaza la predeterminada. El receptor STOW visible también la usa para derivar seudónimos. |
 | `ECOAUDIT_ENVIRONMENT` | `dev` por defecto; Compose usa `prod`. |
 | `ECOAUDIT_DATABASE_URL` | `sqlite:///./data/ecoaudit.db` por defecto. Compose usa `postgresql+psycopg` hacia `db:5432/ecoaudit`. |
 | `ECOAUDIT_STORAGE_DIR` | `./data/storage` por defecto; la imagen backend usa `/data/storage`. |
 | `ECOAUDIT_ACCESS_TOKEN_MINUTES` | 480 minutos por defecto. |
-| `ECOAUDIT_CORS_ORIGINS` | `http://localhost:5173` por defecto; lista separada por comas. Compose fija `http://localhost:8080`. |
+| `ECOAUDIT_CORS_ORIGINS` | `http://localhost:5173` por defecto. Admite una lista separada por comas. Compose usa `http://localhost:8080` y el override HTTPS usa el origen de `ECOAUDIT_DOMAIN`. |
 | `ECOAUDIT_MAX_UPLOAD_MB` | 25 por defecto, convertido a bytes multiplicando por 1024². Revise también límites de lote y proxy. |
 | `ECOAUDIT_INLINE_WORKER` | `true` en desarrollo y `false` en Compose. |
 | `ECOAUDIT_WORKER_POLL_SECONDS` | 1 s de espera por defecto cuando no hay trabajo. |
@@ -69,23 +79,42 @@ En desarrollo, `Settings` carga también `.env` desde el directorio de ejecució
 
 ## Respaldo y restauración
 
-Realice el ensayo en una instancia desechable. Para obtener un punto consistente, interrumpa el ingreso al sistema y detenga los escritores web, API y worker. PostgreSQL permanece disponible para el volcado. Desde la raíz, los comandos guardan un archivo binario de PostgreSQL sin pasarlo por la redirección textual de PowerShell:
+Desde la raíz del repositorio, con PostgreSQL activo, ejecute el par de scripts para su sistema. El respaldo crea un directorio fechado en UTC con `postgres.dump` (formato personalizado de PostgreSQL) y `storage.tar.gz` (volumen `storage` completo). Seleccione un destino local fuera del repositorio, con acceso restringido y espacio para ambos archivos.
 
 ```powershell
-docker compose stop web api worker
-docker compose exec -T db pg_dump -U ecoaudit -d ecoaudit -Fc -f /tmp/ecoaudit.dump
-docker compose cp db:/tmp/ecoaudit.dump ./ecoaudit.dump
-docker compose cp api:/data/storage ./respaldo-storage
-docker compose start api worker web
+.\tools\respaldo.ps1 -Destino 'D:\Respaldos\EcoAudit'
+.\tools\restaurar.ps1 -Destino 'D:\Respaldos\EcoAudit\AAAAMMDDTHHMMSSZ-identificador'
 ```
 
-Compruebe los códigos de salida y la estructura del directorio copiado antes de reabrir el servicio. Registre fecha UTC, revisión, huellas, conteos y metadatos del respaldo. Custodie cifrados el volcado y archivos y conserve las claves y configuración por el canal institucional. Elimine copias temporales conforme al procedimiento de retención. Para SQLite, detenga API y worker antes de copiar; use la API de backup de SQLite o copie la base cerrada incluyendo los archivos auxiliares si existen, junto con su almacén.
+```bash
+bash tools/respaldo.sh /srv/respaldos/ecoaudit
+bash tools/restaurar.sh /srv/respaldos/ecoaudit/AAAAMMDDTHHMMSSZ-identificador
+```
 
-Para restaurar Compose, use una instancia aislada con base y almacén vacíos. Arranque solo `db`. Copie el volcado al contenedor con `docker compose cp ./ecoaudit.dump db:/tmp/ecoaudit.dump` y ejecute `docker compose exec -T db pg_restore -U ecoaudit -d ecoaudit --exit-on-error /tmp/ecoaudit.dump`. Con la API creada pero detenida, copie el contenido de `respaldo-storage` a `/data/storage` en el volumen compartido. Verifique permisos del usuario `ecoaudit`, fichas y hashes, rutas de imágenes/CAM y conteos. Arranque API y worker y efectúe humo con una cuenta de prueba. Registre RPO/RTO. Evite abrir tráfico hasta comprobar la coherencia entre base y almacén.
+Indique el directorio concreto que devuelve el script de respaldo. Use los archivos Compose y el proyecto del despliegue. Para HTTPS, defina `COMPOSE_FILE` como `docker-compose.yml:deploy/docker-compose.https.yml` en Linux, o `docker-compose.yml;deploy/docker-compose.https.yml` con el cliente Docker de Windows. Mantenga disponibles las variables del proyecto.
 
-## HTTPS mediante proxy inverso
+En una estación Windows donde se permita ejecutar scripts locales con `RemoteSigned`, puede iniciar el proceso con `powershell -NoProfile -ExecutionPolicy RemoteSigned -File .\tools\respaldo.ps1 -Destino 'D:\Respaldos\EcoAudit'`. Use la misma opción de proceso para restaurar si corresponde.
 
-Configure HTTPS en el proxy institucional y limite el upstream HTTP de nginx web a loopback o a una red interna del proxy. En Compose de ensayo, el ajuste de publicación puede usar `127.0.0.1:8080:80` para un proxy en el mismo host. Exponga 443 al ámbito autorizado y configure certificados, redirección HTTP y renovación a cargo del operador. Conserve las rutas `/api/` y el encabezado `Host`. Use el origen HTTPS de la SPA si su despliegue necesita CORS. Mantenga API y BD en red privada. Revise límites y tiempos en ambos proxies. El nginx incluido fija `client_max_body_size 30m` y puede rechazar lotes o un multipart STOW permitido por la API. Haga prueba de carga y confirmación de límites en la configuración resultante.
+Antes de operar, cierre el ingreso de tráfico, deje que el worker termine los análisis pendientes y detenga los procesos externos que escriban en la base o el volumen. Coordine una operación a la vez por proyecto. Los scripts detienen nginx, API y worker y, al terminar correctamente, arrancan los servicios que estaban activos. Caddy puede seguir escuchando en los puertos publicados durante el mantenimiento. Custodie el par de archivos cifrado y gestione las claves y la configuración por el canal institucional.
+
+**Restaurar reemplaza la base `ecoaudit` y el contenido del volumen de archivos del proyecto seleccionado.** Use un respaldo de confianza y ensaye primero en una instancia aislada. Los scripts inspeccionan ambos archivos antes de reemplazar los datos, recrean la base y recuperan los archivos con sus permisos. Si falla una restauración tras la pausa, revise el error con los escritores detenidos. Antes de reabrir el tráfico, compruebe revisión de Alembic, conteos, acceso a casos e imágenes, huellas de archivos y un análisis de humo. Registre RPO y RTO. Para SQLite, detenga los escritores y use la API de backup de SQLite o copie la base cerrada, incluidos los archivos auxiliares correspondientes, junto con su almacén.
+
+## HTTPS mediante Caddy
+
+Use Docker Compose v2.24.4 o posterior. Defina `ECOAUDIT_DOMAIN` en `.env` con el nombre DNS que usarán los clientes, sin esquema, ruta ni puerto. Seleccione `ECOAUDIT_TLS_MODE=publico` para un dominio público o `ECOAUDIT_TLS_MODE=interno` para la red hospitalaria. Arranque desde la raíz del repositorio.
+
+```powershell
+docker compose -f docker-compose.yml -f deploy/docker-compose.https.yml config -q
+docker compose -f docker-compose.yml -f deploy/docker-compose.https.yml up -d --build
+docker compose -f docker-compose.yml -f deploy/docker-compose.https.yml ps
+```
+
+El override retira la publicación de nginx en 8080. Caddy publica 80 y 443, redirige HTTP a HTTPS y reenvía a nginx por la red de Compose. PostgreSQL, nginx y la API quedan en la red interna. Limite el acceso a los puertos publicados al ámbito de la instalación. Conserve `caddy_data` para mantener la autoridad local y su material criptográfico o el estado de renovación, según el modo. [HTTPS automático de Caddy](https://caddyserver.com/docs/automatic-https) · [Combinación de archivos Compose](https://docs.docker.com/reference/compose-file/merge/)
+
+- **Público.** Configure el DNS público hacia el servidor y habilite el acceso a 80 y 443 para la validación ACME. Caddy solicita y renueva el certificado.
+- **Interno.** Configure el DNS hospitalario hacia el servidor. Con `tls internal`, Caddy emite certificados con su autoridad local. Exporte solo el certificado público mediante `docker compose -f docker-compose.yml -f deploy/docker-compose.https.yml cp caddy:/data/caddy/pki/authorities/local/root.crt ./ecoaudit-ca.crt`. Distribúyalo por el canal institucional e instálelo en los almacenes de confianza de los clientes autorizados. Para una instalación sin internet, precargue las imágenes de EcoAudit, PostgreSQL y Caddy. Use `up -d --no-build --pull never` con los mismos dos archivos Compose. La interfaz usa su fuente de respaldo cuando Google Fonts no está disponible.
+
+Verifique la redirección, el certificado y `https://<dominio>/api/health` desde un cliente que confíe en la autoridad elegida. nginx admite cuerpos de hasta 30 MiB en general (25 MiB por imagen más multipart), 100 MiB para STOW-RS y 256 MiB para lotes de cohortes. Divida los lotes que superen ese tamaño. Si cambia el límite de la API, revise el de nginx y el del proxy institucional.
 
 ## Conexión PACS · DICOMweb STOW-RS I4
 

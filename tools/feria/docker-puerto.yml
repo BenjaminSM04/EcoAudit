@@ -1,0 +1,5 @@
+# Sustituye el puerto publicado cuando se indica -PuertoWeb.
+services:
+  web:
+    ports: !override
+      - "127.0.0.1:${ECOAUDIT_FERIA_PUERTO:?indica -PuertoWeb}:80"

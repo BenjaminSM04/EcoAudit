@@ -114,6 +114,33 @@ Las pruebas arrancan por su cuenta el backend (puerto 8001) y Vite (puerto 5174)
 almacenamiento nuevos en `e2e/.tmp/` (se borra en cada ejecución), crean los usuarios de prueba con
 contraseñas aleatorias y registran el modelo de demostración. No tocan `backend/data/`.
 
+## Demo para la feria en Windows 11
+
+### Docker Desktop (recomendado por el autor)
+
+1. Instala Git y Docker Desktop con `winget install Git.Git` y
+   `winget install Docker.DockerDesktop`. Si necesitas WSL 2, ejecuta `wsl --install` como
+   administrador. Reinicia Windows, abre Docker Desktop y acepta sus términos.
+2. Clona EcoAudit con `git clone https://github.com/BenjaminSM04/EcoAudit.git` en una carpeta de
+   tu usuario en `C:`. Desde el clon, abre `tools\feria\docker-demo.cmd` con internet. El script
+   compila las imágenes Docker y descarga y verifica los ZIP del modelo y las ecografías. Si el
+   clon aún carece de los scripts, copia los archivos de la entrega según la
+   [guía de la feria](tools/feria/README.md).
+3. Abre <http://localhost:8080> con las cuentas de
+   `%LOCALAPPDATA%\EcoAuditFeria\credenciales-docker.txt`. Usa `docker-detener.cmd` para detener
+   los servicios y conservar sus datos.
+4. Guarda el clon, los volúmenes, las imágenes Docker y los ZIP en la laptop. Ensaya con el
+   Wi-Fi apagado usando `.\tools\feria\docker-demo.cmd -SinCompilar` desde la raíz del clon.
+   La interfaz y la inferencia se ejecutan localmente. También puedes reanudar con
+   `docker compose up -d` si usaste el puerto predeterminado.
+
+### Sin Docker (respaldo)
+
+1. Instala Python y Node.js según la [guía de la feria](tools/feria/README.md) y prepara el clon
+   con `tools\feria\preparar.cmd`, indicando la carpeta del modelo ONNX del estudio.
+2. Usa `iniciar.cmd` para abrir la demo local y `detener.cmd` para cerrarla. La guía también
+   explica cómo usar ZIP locales y un puerto alternativo con Docker.
+
 ## Despliegue con Docker
 
 ```bash
